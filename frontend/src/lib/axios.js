@@ -5,6 +5,6 @@ export const axiosInstance = axios.create({
     ? `${import.meta.env.VITE_API_URL}/api`
     : import.meta.env.MODE === "development"
     ? "http://localhost:5001/api"
-    : "/api",
+    : "https://chatapp-9yga.onrender.com/api",
   withCredentials: true,
 });
