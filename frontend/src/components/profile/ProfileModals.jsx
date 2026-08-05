@@ -182,8 +182,8 @@ const ProfileModals = () => {
         </div>
       )}
 
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-        <div className="bg-base-100 border border-base-300 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto messages-scrollbar">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+        <div className="bg-base-100 border border-base-300 rounded-2xl sm:rounded-3xl max-w-lg w-full p-4 sm:p-6 shadow-2xl space-y-4 sm:space-y-5 max-h-[88dvh] overflow-y-auto messages-scrollbar">
           {/* Modal Header */}
           <div className="flex items-center justify-between pb-3 border-b border-base-300">
             <h3 className="text-lg font-bold text-base-content flex items-center gap-2">

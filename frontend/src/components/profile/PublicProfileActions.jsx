@@ -95,14 +95,14 @@ const PublicProfileActions = ({ user }) => {
       id: "message",
       label: "Message",
       icon: MessageSquare,
-      className: `btn btn-sm ${isBlocked ? "btn-disabled opacity-50" : "btn-primary"} rounded-xl gap-2 px-5`,
+      className: `btn btn-sm ${isBlocked ? "btn-disabled opacity-50" : "btn-primary"} rounded-xl gap-2 px-3 sm:px-5 flex-1 sm:flex-none justify-center`,
       onClick: handleMessage,
     },
     {
       id: "voice",
       label: "Voice Call",
       icon: Phone,
-      className: `btn btn-sm ${isBlocked ? "btn-disabled opacity-50" : "btn-outline"} rounded-xl gap-2 px-5`,
+      className: `btn btn-sm ${isBlocked ? "btn-disabled opacity-50" : "btn-outline"} rounded-xl gap-2 px-3 sm:px-5 flex-1 sm:flex-none justify-center`,
       onClick: () => {
         if (isBlocked) { toast.error("Unblock this user first."); return; }
         toast("Voice calls coming soon!", { icon: "📞" });
@@ -112,7 +112,7 @@ const PublicProfileActions = ({ user }) => {
       id: "video",
       label: "Video Call",
       icon: Video,
-      className: `btn btn-sm ${isBlocked ? "btn-disabled opacity-50" : "btn-outline"} rounded-xl gap-2 px-5`,
+      className: `btn btn-sm ${isBlocked ? "btn-disabled opacity-50" : "btn-outline"} rounded-xl gap-2 px-3 sm:px-5 flex-1 sm:flex-none justify-center`,
       onClick: () => {
         if (isBlocked) { toast.error("Unblock this user first."); return; }
         toast("Video calls coming soon!", { icon: "📹" });
