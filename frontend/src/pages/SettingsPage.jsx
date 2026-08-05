@@ -18,7 +18,7 @@ const SettingsPage = () => {
           <p className="text-sm text-base-content/70">Choose a theme for your chat interface</p>
         </div>
 
-        <div className="grid grid-cols-3 xs:grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
           {THEMES.map((t) => (
             <button
               key={t}

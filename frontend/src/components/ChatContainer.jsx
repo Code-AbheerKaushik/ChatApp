@@ -91,7 +91,7 @@ const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit
 
             {/* Text */}
             {message.text && (
-              <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{highlight(message.text)}</p>
+              <p className="text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere] leading-relaxed">{highlight(message.text)}</p>
             )}
 
             {/* Timestamp + edited */}
@@ -105,16 +105,16 @@ const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit
             </div>
           </div>
 
-          {/* Quick Emoji Bar on Hover */}
+          {/* Quick Emoji Bar on Hover (positioned above bubble) */}
           <div
-            className={`absolute ${isOwn ? "right-0" : "left-0"} -bottom-5 hidden group-hover:flex items-center gap-1 z-10`}
+            className={`absolute ${isOwn ? "right-0" : "left-0"} -top-7 hidden group-hover:flex items-center gap-1 z-20`}
           >
-            <div className="flex items-center bg-base-100 border border-base-300 rounded-full shadow-md px-1 py-0.5 gap-0.5">
+            <div className="flex items-center bg-base-100/95 backdrop-blur-md border border-base-300 rounded-full shadow-md px-1.5 py-0.5 gap-0.5">
               {QUICK_EMOJIS.map((emoji) => (
                 <button
                   key={emoji}
                   onClick={() => onReact(message._id, emoji)}
-                  className="text-sm hover:scale-125 transition-transform px-0.5"
+                  className="text-xs sm:text-sm hover:scale-125 transition-transform px-0.5"
                 >
                   {emoji}
                 </button>

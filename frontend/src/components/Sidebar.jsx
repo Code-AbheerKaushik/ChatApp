@@ -45,6 +45,17 @@ const formatTime = (dateStr) => {
 // ─── Overflow Menu ────────────────────────────────────────────────────────────
 const OverflowMenu = ({ userId, isPinned, isMuted, isFavorite, isArchived, hasUnread, onClose, actions, anchorRef }) => {
   const menuRef = useRef(null);
+  const [openUpward, setOpenUpward] = useState(false);
+
+  useEffect(() => {
+    if (anchorRef?.current) {
+      const rect = anchorRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      if (spaceBelow < 260) {
+        setOpenUpward(true);
+      }
+    }
+  }, [anchorRef]);
 
   // Close on outside click
   useEffect(() => {
@@ -112,11 +123,12 @@ const OverflowMenu = ({ userId, isPinned, isMuted, isFavorite, isArchived, hasUn
       ref={menuRef}
       role="menu"
       aria-label="Chat options"
-      className="absolute right-0 top-full mt-1 z-50 w-52 origin-top-right
-        rounded-xl bg-base-100 border border-base-300
-        shadow-[0_8px_32px_rgba(0,0,0,0.12)]
+      className={`absolute right-0 z-50 w-52
+        rounded-xl bg-base-100/95 backdrop-blur-md border border-base-300
+        shadow-[0_8px_32px_rgba(0,0,0,0.16)]
         animate-[menuIn_0.12s_ease-out]
-        overflow-hidden"
+        overflow-hidden
+        ${openUpward ? "bottom-full mb-1 origin-bottom-right" : "top-full mt-1 origin-top-right"}`}
       style={{ minWidth: "13rem" }}
     >
       {menuItems.map((item, idx) => {

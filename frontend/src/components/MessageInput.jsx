@@ -216,13 +216,13 @@ const MessageInput = () => {
           <button
             type="button"
             onClick={() => { setAttachMenuOpen(!attachMenuOpen); setEmojiOpen(false); }}
-            className="btn btn-ghost btn-sm btn-circle"
+            className={`btn btn-ghost btn-sm btn-circle ${attachMenuOpen ? "btn-active" : ""}`}
             title="Attachments"
           >
             <Paperclip className="size-4" />
           </button>
           {attachMenuOpen && (
-            <div className="absolute bottom-full left-0 mb-2 bg-base-100 border border-base-300 rounded-xl shadow-lg overflow-hidden w-36">
+            <div className="absolute bottom-full left-0 mb-2 bg-base-100/95 backdrop-blur-md border border-base-300 rounded-xl shadow-xl overflow-hidden w-36 z-30 animate-in fade-in slide-in-from-bottom-2">
               <button
                 className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-base-200 transition-colors"
                 onClick={() => fileInputRef.current?.click()}
@@ -255,7 +255,6 @@ const MessageInput = () => {
           rows={1}
           value={text}
           onChange={(e) => { setText(e.target.value); handleTyping(); }}
-          onFocus={() => { window.scrollTo(0, 0); document.body.scrollTop = 0; }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendMessage(); }
           }}

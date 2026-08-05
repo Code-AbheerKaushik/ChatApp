@@ -137,6 +137,7 @@ const ProfilePage = () => {
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
+                    title={tab.label}
                     className={`
                       flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all duration-200
                       ${isActive ? "bg-primary text-primary-content shadow-xs scale-[1.02]" : "text-base-content/70 hover:bg-base-100 hover:text-base-content"}
