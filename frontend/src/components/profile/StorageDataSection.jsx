@@ -1,10 +1,17 @@
+import { useEffect } from "react";
 import { useProfileStore } from "../../store/useProfileStore";
-import { Database, Trash2, Download, HardDrive, FileText, Image as ImageIcon, Video, Mic } from "lucide-react";
+import { Database, Trash2, Download, HardDrive, FileText, Image as ImageIcon, Video, Mic, Loader2 } from "lucide-react";
 
 const StorageDataSection = () => {
-  const { storageStats, clearCache, exportChatData, openModal } = useProfileStore();
+  const { storageStats, fetchStorageStats, isLoadingStorage, clearCache, exportChatData } = useProfileStore();
 
-  const percentageUsed = Math.round((storageStats.totalUsedMB / storageStats.maxMB) * 100);
+  useEffect(() => {
+    fetchStorageStats();
+  }, []);
+
+  const percentageUsed = storageStats.maxMB > 0
+    ? Math.min(100, Math.round((storageStats.totalUsedMB / storageStats.maxMB) * 100))
+    : 0;
 
   const categories = [
     { label: "Photos", sizeMB: storageStats.imagesMB, color: "bg-primary text-primary", icon: ImageIcon },
@@ -27,19 +34,25 @@ const StorageDataSection = () => {
           </div>
         </div>
         <div className="text-right">
-          <p className="text-xs font-bold text-base-content">{storageStats.totalUsedMB} MB / {storageStats.maxMB} MB</p>
-          <p className="text-[10px] text-base-content/50">{percentageUsed}% Capacity Used</p>
+          {isLoadingStorage ? (
+            <Loader2 className="w-4 h-4 animate-spin text-primary ml-auto" />
+          ) : (
+            <>
+              <p className="text-xs font-bold text-base-content">{storageStats.totalUsedMB} MB / {storageStats.maxMB} MB</p>
+              <p className="text-[10px] text-base-content/50">{percentageUsed}% Capacity Used</p>
+            </>
+          )}
         </div>
       </div>
 
       {/* Progress Bar Breakdown */}
       <div className="space-y-1.5">
         <div className="h-3 w-full bg-base-200 rounded-full overflow-hidden flex p-0.5 border border-base-300">
-          <div style={{ width: `${(storageStats.imagesMB / storageStats.maxMB) * 100}%` }} className="bg-primary h-full rounded-l-full" title="Photos" />
-          <div style={{ width: `${(storageStats.videosMB / storageStats.maxMB) * 100}%` }} className="bg-secondary h-full" title="Videos" />
-          <div style={{ width: `${(storageStats.docsMB / storageStats.maxMB) * 100}%` }} className="bg-accent h-full" title="Documents" />
-          <div style={{ width: `${(storageStats.voiceNotesMB / storageStats.maxMB) * 100}%` }} className="bg-info h-full" title="Voice Notes" />
-          <div style={{ width: `${(storageStats.cacheMB / storageStats.maxMB) * 100}%` }} className="bg-warning h-full rounded-r-full" title="Cache" />
+          <div style={{ width: `${(storageStats.imagesMB / storageStats.maxMB) * 100}%` }} className="bg-primary h-full rounded-l-full transition-all duration-700" title="Photos" />
+          <div style={{ width: `${(storageStats.videosMB / storageStats.maxMB) * 100}%` }} className="bg-secondary h-full transition-all duration-700" title="Videos" />
+          <div style={{ width: `${(storageStats.docsMB / storageStats.maxMB) * 100}%` }} className="bg-accent h-full transition-all duration-700" title="Documents" />
+          <div style={{ width: `${(storageStats.voiceNotesMB / storageStats.maxMB) * 100}%` }} className="bg-info h-full transition-all duration-700" title="Voice Notes" />
+          <div style={{ width: `${(storageStats.cacheMB / storageStats.maxMB) * 100}%` }} className="bg-warning h-full rounded-r-full transition-all duration-700" title="Cache" />
         </div>
 
         {/* Legend Grid */}
@@ -70,11 +83,11 @@ const StorageDataSection = () => {
         </button>
 
         <button
-          onClick={() => openModal("mediaGallery")}
+          onClick={fetchStorageStats}
           className="btn btn-sm btn-outline btn-primary rounded-xl gap-2 text-xs font-medium"
         >
           <HardDrive className="w-3.5 h-3.5" />
-          Manage Downloads
+          Recalculate Usage
         </button>
 
         <button

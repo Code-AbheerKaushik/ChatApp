@@ -1,29 +1,33 @@
-import { useChatStore } from "../../store/useChatStore";
+import { useEffect } from "react";
+import { useProfileStore } from "../../store/useProfileStore";
 import { useAuthStore } from "../../store/useAuthStore";
-import { MessageSquare, Users, Send, Image, PhoneCall, Clock } from "lucide-react";
+import { MessageSquare, Users, Send, Image, PhoneCall, Clock, Loader2 } from "lucide-react";
 
 const StatsSection = () => {
-  const { users } = useChatStore();
+  const { profileStats, fetchProfileStats, isLoadingStats } = useProfileStore();
   const { authUser } = useAuthStore();
 
-  const accountAgeDays = authUser?.createdAt
-    ? Math.max(1, Math.floor((new Date() - new Date(authUser.createdAt)) / (1000 * 60 * 60 * 24)))
-    : 1;
+  useEffect(() => {
+    fetchProfileStats();
+  }, []);
 
   const stats = [
-    { label: "Active Chats", value: users.length || 12, icon: MessageSquare, color: "text-primary bg-primary/10" },
-    { label: "Group Rooms", value: 3, icon: Users, color: "text-secondary bg-secondary/10" },
-    { label: "Messages Sent", value: "1,420+", icon: Send, color: "text-accent bg-accent/10" },
-    { label: "Media Shared", value: 94, icon: Image, color: "text-emerald-500 bg-emerald-500/10" },
-    { label: "Calls Made", value: 28, icon: PhoneCall, color: "text-info bg-info/10" },
-    { label: "Account Age", value: `${accountAgeDays}d`, icon: Clock, color: "text-warning bg-warning/10" },
+    { label: "Active Chats", value: profileStats.activeChats, icon: MessageSquare, color: "text-primary bg-primary/10" },
+    { label: "Group Rooms", value: profileStats.groupRooms, icon: Users, color: "text-secondary bg-secondary/10" },
+    { label: "Messages Sent", value: profileStats.messagesSent.toLocaleString(), icon: Send, color: "text-accent bg-accent/10" },
+    { label: "Media Shared", value: profileStats.mediaShared, icon: Image, color: "text-emerald-500 bg-emerald-500/10" },
+    { label: "Calls Made", value: profileStats.callsMade, icon: PhoneCall, color: "text-info bg-info/10" },
+    { label: "Account Age", value: `${profileStats.accountAgeDays}d`, icon: Clock, color: "text-warning bg-warning/10" },
   ];
 
   return (
     <div className="bg-base-100/90 backdrop-blur-md border border-base-300 rounded-2xl p-5 shadow-sm space-y-3">
-      <h3 className="text-xs font-semibold text-base-content/50 uppercase tracking-wider px-1">
-        Activity & Metrics
-      </h3>
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-semibold text-base-content/50 uppercase tracking-wider px-1">
+          Activity & Metrics
+        </h3>
+        {isLoadingStats && <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />}
+      </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
         {stats.map((stat) => {
@@ -37,7 +41,9 @@ const StatsSection = () => {
                 <Icon className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <p className="text-base font-bold text-base-content leading-none">{stat.value}</p>
+                <p className="text-base font-bold text-base-content leading-none">
+                  {isLoadingStats ? <span className="loading loading-dots loading-xs" /> : stat.value}
+                </p>
                 <p className="text-[10px] font-medium text-base-content/60 mt-1 truncate">{stat.label}</p>
               </div>
             </div>

@@ -52,6 +52,26 @@ const userSchema = new mongoose.Schema(
       lastSeenVisibility: { type: String, default: "Everyone" },
       groupInvitePermission: { type: String, default: "Everyone" },
       birthdayVisibility: { type: String, default: "Contacts" },
+      onlineStatusVisibility: { type: String, default: "Everyone" },
+      aboutVisibility: { type: String, default: "Everyone" },
+      allowGroupInvites: { type: String, default: "Everyone" },
+      readReceipts: { type: Boolean, default: true },
+      typingIndicator: { type: Boolean, default: true },
+    },
+
+    // ─── Blocked Users List ──────────────────────────────────────────────────
+    blockedUsers: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+
+    // ─── Two Factor Authentication ───────────────────────────────────────────
+    twoFactor: {
+      enabled: { type: Boolean, default: false },
+      secret: { type: String, default: "" },
+      recoveryKeys: { type: [String], default: [] },
     },
 
     // ─── Onboarding & Profile State ──────────────────────────────────────────

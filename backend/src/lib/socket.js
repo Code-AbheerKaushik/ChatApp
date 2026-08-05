@@ -1,6 +1,7 @@
 import { Server } from "socket.io";
 import http from "http";
 import express from "express";
+import User from "../models/user.model.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -25,20 +26,50 @@ io.on("connection", (socket) => {
   const userId = socket.handshake.query.userId;
   if (userId) userSocketMap[userId] = socket.id;
 
-  // io.emit() is used to send events to all the connected clients
   io.emit("getOnlineUsers", Object.keys(userSocketMap));
 
-  socket.on("typing", ({ receiverId }) => {
-    const receiverSocketId = userSocketMap[receiverId];
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit("typing", { senderId: userId });
+  // ─── Typing Events with privacy check ─────────────────────────────────────
+  socket.on("typing", async ({ receiverId }) => {
+    try {
+      const sender = await User.findById(userId).select("privacy").lean();
+      // If sender has disabled typing indicator, do not emit
+      if (sender?.privacy?.typingIndicator === false) return;
+
+      const receiverSocketId = userSocketMap[receiverId];
+      if (receiverSocketId) {
+        io.to(receiverSocketId).emit("typing", { senderId: userId });
+      }
+    } catch (err) {
+      console.error("Error in typing event:", err.message);
     }
   });
 
-  socket.on("stopTyping", ({ receiverId }) => {
-    const receiverSocketId = userSocketMap[receiverId];
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit("stopTyping", { senderId: userId });
+  socket.on("stopTyping", async ({ receiverId }) => {
+    try {
+      const sender = await User.findById(userId).select("privacy").lean();
+      if (sender?.privacy?.typingIndicator === false) return;
+
+      const receiverSocketId = userSocketMap[receiverId];
+      if (receiverSocketId) {
+        io.to(receiverSocketId).emit("stopTyping", { senderId: userId });
+      }
+    } catch (err) {
+      console.error("Error in stopTyping event:", err.message);
+    }
+  });
+
+  // ─── Read Receipts with privacy check ─────────────────────────────────────
+  socket.on("messageRead", async ({ senderId, messageId }) => {
+    try {
+      const reader = await User.findById(userId).select("privacy").lean();
+      if (reader?.privacy?.readReceipts === false) return;
+
+      const senderSocketId = userSocketMap[senderId];
+      if (senderSocketId) {
+        io.to(senderSocketId).emit("messageRead", { readBy: userId, messageId });
+      }
+    } catch (err) {
+      console.error("Error in messageRead event:", err.message);
     }
   });
 

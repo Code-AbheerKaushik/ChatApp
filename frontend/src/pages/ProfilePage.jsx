@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuthStore } from "../store/useAuthStore";
+import { useProfileStore } from "../store/useProfileStore";
 import { Link } from "react-router-dom";
 import ProfileHeader from "../components/profile/ProfileHeader";
 import QuickActions from "../components/profile/QuickActions";
@@ -17,7 +18,15 @@ import { ArrowLeft, UserCheck, User, Shield, Bell, Palette, Database, Lock, Imag
 
 const ProfilePage = () => {
   const { authUser, isCheckingAuth } = useAuthStore();
-  const [activeTab, setActiveTab] = useState("all"); // "all" | "personal" | "privacy" | "notifications" | "appearance" | "storage" | "security" | "media"
+  const { loadPrivacyFromUser } = useProfileStore();
+  const [activeTab, setActiveTab] = useState("all");
+
+  useEffect(() => {
+    if (authUser) {
+      loadPrivacyFromUser(authUser);
+    }
+  }, [authUser]);
+
 
   if (isCheckingAuth && !authUser) {
     return (

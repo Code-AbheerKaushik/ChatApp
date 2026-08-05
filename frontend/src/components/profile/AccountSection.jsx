@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useProfileStore } from "../../store/useProfileStore";
 import { useChatStore } from "../../store/useChatStore";
@@ -5,8 +6,13 @@ import { Archive, Star, Heart, EyeOff, Smartphone, BarChart2, LogOut, Trash2, Ba
 
 const AccountSection = () => {
   const { logout } = useAuthStore();
-  const { openModal, blockedUsers } = useProfileStore();
+  const { openModal, blockedUsers, activeSessions, fetchActiveSessions, fetchBlockedUsers } = useProfileStore();
   const { archivedUsers, favoriteUsers } = useChatStore();
+
+  useEffect(() => {
+    fetchBlockedUsers();
+    fetchActiveSessions();
+  }, []);
 
   const accountOptions = [
     {
@@ -49,7 +55,7 @@ const AccountSection = () => {
       id: "linked",
       icon: Smartphone,
       title: "Linked Devices",
-      count: 3,
+      count: activeSessions.length,
       color: "text-info",
       action: () => openModal("sessionsModal"),
     },

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import toast from "react-hot-toast";
+import { axiosInstance } from "../lib/axios.js";
 import { useAuthStore } from "./useAuthStore";
 
 const loadLocal = (key, fallback) => {
@@ -20,37 +21,54 @@ const saveLocal = (key, value) => {
 };
 
 export const useProfileStore = create((set, get) => ({
-  // --- Extra Profile Fields (Persisted via MongoDB authUser) ---
+  // ─── Extra Profile
   extraProfile: {},
-
   updateExtraProfile: async (updates) => {
     try {
       await useAuthStore.getState().updateProfile(updates);
       set({ extraProfile: updates });
-    } catch {
-      // handled by authStore error toast
-    }
+    } catch { /* handled by authStore */ }
   },
 
-  // --- Privacy Settings ---
-  privacy: loadLocal("chatty_privacy", {
-    lastSeen: "Everyone", // "Everyone" | "Contacts" | "Nobody"
+  // ─── Privacy Settings (persisted in MongoDB via updateProfile)
+  privacy: {
+    lastSeen: "Everyone",
     onlineStatus: "Everyone",
     profilePhoto: "Everyone",
     aboutVisibility: "Everyone",
     readReceipts: true,
     typingIndicator: true,
     twoFactorEnabled: false,
-  }),
-
-  updatePrivacy: (key, value) => {
-    const updated = { ...get().privacy, [key]: value };
-    saveLocal("chatty_privacy", updated);
-    set({ privacy: updated });
-    toast.success("Privacy setting updated");
   },
 
-  // --- Notifications Settings ---
+  updatePrivacy: async (key, value) => {
+    const prev = get().privacy;
+    set({ privacy: { ...prev, [key]: value } }); // optimistic
+    try {
+      await useAuthStore.getState().updateProfile({ privacy: { [key]: value } });
+      toast.success("Privacy setting updated");
+    } catch {
+      set({ privacy: prev }); // rollback on failure
+      toast.error("Failed to update privacy setting");
+    }
+  },
+
+  loadPrivacyFromUser: (user) => {
+    if (!user?.privacy) return;
+    set({
+      privacy: {
+        lastSeen: user.privacy.lastSeenVisibility || "Everyone",
+        onlineStatus: user.privacy.onlineStatusVisibility || "Everyone",
+        profilePhoto: user.privacy.profilePhotoVisibility || "Everyone",
+        aboutVisibility: user.privacy.aboutVisibility || "Everyone",
+        readReceipts: user.privacy.readReceipts ?? true,
+        typingIndicator: user.privacy.typingIndicator ?? true,
+        twoFactorEnabled: user.twoFactor?.enabled ?? false,
+      },
+    });
+  },
+
+  // ─── Notifications Settings (localStorage only, no backend equivalent yet)
   notifications: loadLocal("chatty_notifications", {
     messageNotifications: true,
     groupNotifications: true,
@@ -65,13 +83,7 @@ export const useProfileStore = create((set, get) => ({
     const current = get().notifications;
     let updated;
     if (key === "muteAll") {
-      updated = {
-        ...current,
-        muteAll: value,
-        messageNotifications: !value,
-        groupNotifications: !value,
-        callNotifications: !value,
-      };
+      updated = { ...current, muteAll: value, messageNotifications: !value, groupNotifications: !value, callNotifications: !value };
     } else {
       updated = { ...current, [key]: value, muteAll: false };
     }
@@ -80,15 +92,14 @@ export const useProfileStore = create((set, get) => ({
     toast.success("Notification preference updated");
   },
 
-  // --- Appearance & Layout Config ---
+  // ─── Appearance (localStorage)
   appearance: loadLocal("chatty_appearance", {
-    fontSize: "Medium", // "Small" | "Medium" | "Large"
-    wallpaper: "default", // "default" | "gradient" | "pattern" | "dark"
-    bubbleStyle: "rounded", // "rounded" | "glass" | "classic"
-    messageDensity: "comfortable", // "compact" | "comfortable"
+    fontSize: "Medium",
+    wallpaper: "default",
+    bubbleStyle: "rounded",
+    messageDensity: "comfortable",
     accentColor: "#6366f1",
   }),
-
   updateAppearance: (key, value) => {
     const updated = { ...get().appearance, [key]: value };
     saveLocal("chatty_appearance", updated);
@@ -96,78 +107,258 @@ export const useProfileStore = create((set, get) => ({
     toast.success("Appearance updated");
   },
 
-  // --- Storage Data Metrics ---
+  // ─── Storage Stats (from backend)
   storageStats: {
-    totalUsedMB: 428,
+    totalUsedMB: 0,
     maxMB: 1024,
-    imagesMB: 215,
-    videosMB: 140,
-    docsMB: 48,
-    voiceNotesMB: 15,
-    cacheMB: 10,
+    imagesMB: 0,
+    videosMB: 0,
+    docsMB: 0,
+    voiceNotesMB: 0,
+    cacheMB: 0,
+  },
+  isLoadingStorage: false,
+
+  fetchStorageStats: async () => {
+    set({ isLoadingStorage: true });
+    try {
+      const res = await axiosInstance.get("/auth/storage-stats");
+      set({ storageStats: res.data });
+    } catch (error) {
+      console.error("Failed to fetch storage stats:", error);
+    } finally {
+      set({ isLoadingStorage: false });
+    }
   },
 
   clearCache: () => {
+    // Clear browser caches
+    if ("caches" in window) {
+      caches.keys().then((names) => names.forEach((name) => caches.delete(name)));
+    }
+    // Clear localStorage cache keys (not auth/settings)
+    ["chatty_media_cache"].forEach((key) => localStorage.removeItem(key));
     set((state) => ({
-      storageStats: { ...state.storageStats, cacheMB: 0, totalUsedMB: Math.max(0, state.storageStats.totalUsedMB - state.storageStats.cacheMB) },
+      storageStats: { ...state.storageStats, cacheMB: 0 },
     }));
     toast.success("Cache cleared successfully!");
   },
 
-  exportChatData: () => {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({
-      exportDate: new Date().toISOString(),
-      user: get().extraProfile,
-      privacy: get().privacy,
-      notifications: get().notifications,
-      app: "Chatty Messenger Backup"
-    }));
-    const downloadAnchor = document.createElement("a");
-    downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", `chatty_export_${Date.now()}.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-    toast.success("Export file generated & downloading");
+  exportChatData: async () => {
+    try {
+      const res = await axiosInstance.get("/auth/export-data", { responseType: "json" });
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(res.data, null, 2));
+      const downloadAnchor = document.createElement("a");
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", `chatty_export_${Date.now()}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      toast.success("Chat data exported successfully!");
+    } catch (error) {
+      toast.error("Export failed. Please try again.");
+    }
   },
 
-  // --- Blocked Contacts & Active Devices ---
-  blockedUsers: [
-    { id: "b1", name: "Spam Bot", email: "spambot@example.com", date: "2026-01-10" },
-    { id: "b2", name: "Telemarketer", email: "marketing@promo.com", date: "2026-02-14" },
-  ],
+  // ─── Profile Stats
+  profileStats: {
+    messagesSent: 0,
+    mediaShared: 0,
+    activeChats: 0,
+    groupRooms: 0,
+    callsMade: 0,
+    accountAgeDays: 1,
+  },
+  isLoadingStats: false,
 
-  unblockUser: (id) => {
-    set((state) => ({
-      blockedUsers: state.blockedUsers.filter((u) => u.id !== id),
-    }));
-    toast.success("User unblocked");
+  fetchProfileStats: async () => {
+    set({ isLoadingStats: true });
+    try {
+      const res = await axiosInstance.get("/auth/profile-stats");
+      set({ profileStats: res.data });
+    } catch (error) {
+      console.error("Failed to fetch profile stats:", error);
+    } finally {
+      set({ isLoadingStats: false });
+    }
   },
 
-  activeSessions: [
-    { id: "s1", device: "Chrome on Windows 11", location: "San Francisco, US", ip: "192.168.1.45", isCurrent: true, lastActive: "Active Now" },
-    { id: "s2", device: "Chatty iOS App - iPhone 15 Pro", location: "San Francisco, US", ip: "172.56.21.9", isCurrent: false, lastActive: "2 hours ago" },
-    { id: "s3", device: "Firefox on macOS Sonoma", location: "San Jose, US", ip: "192.168.2.11", isCurrent: false, lastActive: "Yesterday at 14:20" },
-  ],
+  // ─── Shared Media
+  sharedMedia: {
+    items: [],
+    total: 0,
+    page: 1,
+    totalPages: 1,
+    counts: { photos: 0, videos: 0, documents: 0, voiceNotes: 0, links: 0 },
+  },
+  isLoadingMedia: false,
 
-  terminateSession: (id) => {
-    set((state) => ({
-      activeSessions: state.activeSessions.filter((s) => s.id !== id),
-    }));
-    toast.success("Session terminated");
+  fetchSharedMedia: async (type = "photos", page = 1) => {
+    set({ isLoadingMedia: true });
+    try {
+      const res = await axiosInstance.get(`/auth/shared-media?type=${type}&page=${page}&limit=20`);
+      set({ sharedMedia: res.data });
+    } catch (error) {
+      console.error("Failed to fetch shared media:", error);
+    } finally {
+      set({ isLoadingMedia: false });
+    }
   },
 
-  terminateOtherSessions: () => {
-    set((state) => ({
-      activeSessions: state.activeSessions.filter((s) => s.isCurrent),
-    }));
-    toast.success("Logged out from all other devices");
+  // ─── Blocked Users (from backend)
+  blockedUsers: [],
+  isLoadingBlocked: false,
+
+  fetchBlockedUsers: async () => {
+    set({ isLoadingBlocked: true });
+    try {
+      const res = await axiosInstance.get("/auth/blocked");
+      set({ blockedUsers: res.data });
+    } catch (error) {
+      console.error("Failed to fetch blocked users:", error);
+    } finally {
+      set({ isLoadingBlocked: false });
+    }
   },
 
-  // --- Active Modal Control ---
-  activeModal: null, // "editProfile" | "qrCode" | "privacyModal" | "sessionsModal" | "blockedModal" | "changePassword" | "mediaGallery" | "deleteAccount"
+  blockUser: async (targetUserId) => {
+    try {
+      await axiosInstance.post(`/auth/block/${targetUserId}`);
+      toast.success("User blocked");
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to block user");
+    }
+  },
+
+  unblockUser: async (targetUserId) => {
+    const prev = get().blockedUsers;
+    set({ blockedUsers: prev.filter((u) => String(u._id) !== String(targetUserId)) });
+    try {
+      await axiosInstance.post(`/auth/unblock/${targetUserId}`);
+      toast.success("User unblocked");
+    } catch (error) {
+      set({ blockedUsers: prev });
+      toast.error(error.response?.data?.message || "Failed to unblock user");
+    }
+  },
+
+  // ─── Active Sessions (from backend)
+  activeSessions: [],
+  isLoadingSessions: false,
+
+  fetchActiveSessions: async () => {
+    set({ isLoadingSessions: true });
+    try {
+      const res = await axiosInstance.get("/auth/sessions");
+      set({ activeSessions: res.data });
+    } catch (error) {
+      console.error("Failed to fetch sessions:", error);
+    } finally {
+      set({ isLoadingSessions: false });
+    }
+  },
+
+  terminateSession: async (sessionId) => {
+    const prev = get().activeSessions;
+    set({ activeSessions: prev.filter((s) => String(s._id) !== String(sessionId)) });
+    try {
+      await axiosInstance.delete(`/auth/sessions/${sessionId}`);
+      toast.success("Session terminated");
+    } catch (error) {
+      set({ activeSessions: prev });
+      toast.error(error.response?.data?.message || "Failed to terminate session");
+    }
+  },
+
+  terminateOtherSessions: async () => {
+    const prev = get().activeSessions;
+    set({ activeSessions: prev.filter((s) => s.isCurrent) });
+    try {
+      await axiosInstance.delete("/auth/sessions");
+      toast.success("Logged out from all other devices");
+    } catch (error) {
+      set({ activeSessions: prev });
+      toast.error("Failed to terminate sessions");
+    }
+  },
+
+  // ─── Change Password
+  changePassword: async (currentPassword, newPassword) => {
+    try {
+      const res = await axiosInstance.put("/auth/change-password", { currentPassword, newPassword });
+      toast.success(res.data.message || "Password changed successfully");
+      return true;
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to change password");
+      return false;
+    }
+  },
+
+  // ─── Delete Account
+  deleteAccount: async (password) => {
+    try {
+      await axiosInstance.delete("/auth/delete-account", { data: { password } });
+      toast.success("Account deleted successfully");
+      useAuthStore.getState().disconnectSocket();
+      useAuthStore.setState({ authUser: null });
+      return true;
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to delete account");
+      return false;
+    }
+  },
+
+  // ─── 2FA
+  twoFactorSetupData: null,
+  isSetup2FA: false,
+
+  setup2FA: async () => {
+    set({ isSetup2FA: true });
+    try {
+      const res = await axiosInstance.post("/auth/2fa/setup");
+      set({ twoFactorSetupData: res.data });
+      return res.data;
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to setup 2FA");
+      return null;
+    } finally {
+      set({ isSetup2FA: false });
+    }
+  },
+
+  verify2FA: async (token) => {
+    try {
+      const res = await axiosInstance.post("/auth/2fa/verify", { token });
+      // Update authUser 2FA status
+      useAuthStore.setState((state) => ({
+        authUser: { ...state.authUser, twoFactor: { enabled: true } },
+      }));
+      set({ twoFactorSetupData: null });
+      toast.success("2FA enabled successfully");
+      return res.data;
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Invalid 2FA token");
+      return null;
+    }
+  },
+
+  disable2FA: async (password) => {
+    try {
+      await axiosInstance.post("/auth/2fa/disable", { password });
+      useAuthStore.setState((state) => ({
+        authUser: { ...state.authUser, twoFactor: { enabled: false } },
+      }));
+      toast.success("2FA disabled");
+      return true;
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to disable 2FA");
+      return false;
+    }
+  },
+
+  // ─── Active Modal Control
+  activeModal: null,
   modalData: null,
-
   openModal: (modalName, data = null) => set({ activeModal: modalName, modalData: data }),
   closeModal: () => set({ activeModal: null, modalData: null }),
 }));
