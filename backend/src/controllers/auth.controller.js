@@ -821,8 +821,14 @@ export const getUserProfile = async (req, res) => {
     const viewerId = req.user._id;
 
     const targetUser = await User.findById(userId)
-      .select("-password -twoFactor.secret -twoFactor.recoveryKeys")
+      .select("-password -twoFactor.secret -twoFactor.recoveryKeys -blockedUsers -sessions")
       .lean();
+    
+    // Separately fetch only what we need for block checks (not sent to client)
+    const [viewerDoc, targetBlockList] = await Promise.all([
+      User.findById(viewerId).select("blockedUsers").lean(),
+      User.findById(userId).select("blockedUsers").lean(),
+    ]);
 
     if (!targetUser) {
       return res.status(404).json({ message: "User not found" });
@@ -831,8 +837,7 @@ export const getUserProfile = async (req, res) => {
     const isOwnProfile = String(userId) === String(viewerId);
 
     // Check if viewer is blocked by target user or viewer blocked target user
-    const viewerDoc = await User.findById(viewerId).select("blockedUsers").lean();
-    const isViewerBlocked = targetUser.blockedUsers?.some((b) => String(b) === String(viewerId));
+    const isViewerBlocked = targetBlockList?.blockedUsers?.some((b) => String(b) === String(viewerId));
     const isTargetBlockedByViewer = viewerDoc?.blockedUsers?.some((b) => String(b) === String(userId));
 
     const p = targetUser.privacy || {};
