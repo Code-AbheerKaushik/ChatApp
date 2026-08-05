@@ -36,17 +36,17 @@ const AppearanceSection = () => {
       <div className="space-y-2">
         <div className="flex items-center justify-between text-xs font-semibold text-base-content">
           <span>Active Theme ({THEMES.length} options)</span>
-          <span className="text-primary capitalize">{theme}</span>
+          <span className="text-primary capitalize font-bold">{theme}</span>
         </div>
 
-        <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 max-h-40 overflow-y-auto p-1 messages-scrollbar">
+        <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 p-1">
           {THEMES.map((t) => (
             <button
               key={t}
               onClick={() => setTheme(t)}
               className={`
                 group flex flex-col items-center gap-1.5 p-2 rounded-xl transition-all border
-                ${theme === t ? "border-primary bg-primary/10 ring-2 ring-primary/20" : "border-base-300 hover:border-primary/40 bg-base-200/40"}
+                ${theme === t ? "border-primary bg-primary/10 ring-2 ring-primary/20 scale-[1.02]" : "border-base-300 hover:border-primary/40 bg-base-200/40"}
               `}
             >
               <div className="relative h-6 w-full rounded-md overflow-hidden" data-theme={t}>
