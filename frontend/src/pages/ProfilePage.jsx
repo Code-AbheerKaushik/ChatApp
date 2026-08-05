@@ -21,11 +21,11 @@ const ProfilePage = () => {
 
   if (isCheckingAuth && !authUser) {
     return (
-      <div className="h-screen h-[100dvh] pt-20 px-4 max-w-4xl mx-auto space-y-4 animate-pulse">
+      <div className="h-screen h-[100dvh] pt-20 px-4 w-[88%] lg:w-[84%] max-w-[1500px] mx-auto space-y-4 animate-pulse">
         <div className="h-44 bg-base-300 rounded-2xl w-full" />
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="h-64 bg-base-300 rounded-2xl" />
-          <div className="h-64 bg-base-300 rounded-2xl md:col-span-2" />
+          <div className="h-64 bg-base-300 rounded-2xl" />
         </div>
       </div>
     );
@@ -45,9 +45,9 @@ const ProfilePage = () => {
   return (
     <div className="h-screen h-[100dvh] w-full flex flex-col bg-base-200/40 overflow-hidden relative">
       
-      {/* Sticky Header Bar right under main Navbar */}
+      {/* Sticky Top Sub-Header Bar (Offset below main Navbar) */}
       <div className="flex-shrink-0 pt-16 bg-base-100/90 backdrop-blur-md border-b border-base-300 z-20">
-        <div className="max-w-4xl mx-auto px-4 py-2.5 flex items-center justify-between gap-4">
+        <div className="w-[92%] sm:w-[88%] lg:w-[84%] max-w-[1500px] mx-auto px-2 sm:px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <Link
               to="/"
@@ -58,12 +58,12 @@ const ProfilePage = () => {
             </Link>
             <div>
               <h1 className="text-base sm:text-lg font-bold text-base-content leading-tight">Profile & Settings</h1>
-              <p className="text-[11px] text-base-content/60 hidden sm:block">Manage your profile, preferences & security</p>
+              <p className="text-[11px] text-base-content/60 hidden sm:block">Manage your profile details, privacy, appearance, and settings</p>
             </div>
           </div>
 
-          {/* Quick Filter Section Tabs */}
-          <div className="flex items-center gap-1 overflow-x-auto p-1 bg-base-200/60 rounded-xl border border-base-300/60 messages-scrollbar">
+          {/* Expanded Top Navigation Section Tabs */}
+          <div className="flex items-center gap-1.5 overflow-x-auto p-1 bg-base-200/60 rounded-xl border border-base-300/60 messages-scrollbar">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
@@ -72,12 +72,12 @@ const ProfilePage = () => {
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   className={`
-                    flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-all duration-200
-                    ${isActive ? "bg-primary text-primary-content shadow-xs" : "text-base-content/70 hover:bg-base-100 hover:text-base-content"}
+                    flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all duration-200
+                    ${isActive ? "bg-primary text-primary-content shadow-xs scale-[1.02]" : "text-base-content/70 hover:bg-base-100 hover:text-base-content"}
                   `}
                 >
                   <Icon className="w-3.5 h-3.5" />
-                  <span className="hidden md:inline">{tab.label}</span>
+                  <span className="hidden sm:inline">{tab.label}</span>
                 </button>
               );
             })}
@@ -87,39 +87,96 @@ const ProfilePage = () => {
 
       {/* Main Independent Scrollable Container */}
       <div className="flex-1 w-full overflow-y-auto overflow-x-hidden messages-scrollbar scroll-smooth">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 sm:py-6 space-y-6 pb-28 sm:pb-16">
+        <div className="w-[92%] sm:w-[88%] lg:w-[84%] max-w-[1500px] mx-auto px-2 sm:px-4 lg:px-6 py-5 sm:py-6 space-y-6 pb-28 sm:pb-16">
           
-          {/* Profile Header & Quick Action Buttons */}
+          {/* Header & Quick Actions (Spans full width) */}
           <div className="space-y-4">
             <ProfileHeader />
             <QuickActions />
           </div>
 
-          {/* Dynamic 2-Column Desktop / Stacked Mobile Layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            
-            {/* Left Column (Desktop 5 cols) */}
-            <div className="lg:col-span-5 space-y-6">
-              {(activeTab === "all" || activeTab === "media") && <MediaSection />}
-              {(activeTab === "all" || activeTab === "personal") && <StatsSection />}
-              {(activeTab === "all" || activeTab === "personal" || activeTab === "security") && <AccountSection />}
-            </div>
+          {/* Balanced 2-Column Desktop Grid Layout */}
+          {activeTab === "all" ? (
+            <div className="space-y-6">
+              {/* Row 1: Personal Info & Shared Media */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                <PersonalInfoCard />
+                <MediaSection />
+              </div>
 
-            {/* Right Column (Desktop 7 cols) */}
-            <div className="lg:col-span-7 space-y-6">
-              {(activeTab === "all" || activeTab === "personal") && <PersonalInfoCard />}
-              {(activeTab === "all" || activeTab === "privacy") && <PrivacySection />}
-              {(activeTab === "all" || activeTab === "notifications") && <NotificationsSection />}
-              {(activeTab === "all" || activeTab === "appearance") && <AppearanceSection />}
-              {(activeTab === "all" || activeTab === "storage") && <StorageDataSection />}
-              {(activeTab === "all" || activeTab === "security") && <SecuritySection />}
-            </div>
+              {/* Row 2: Privacy & Notifications */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                <PrivacySection />
+                <NotificationsSection />
+              </div>
 
-          </div>
+              {/* Row 3: Storage & Security */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                <StorageDataSection />
+                <SecuritySection />
+              </div>
+
+              {/* Row 4: Appearance & Account/Stats */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                <AppearanceSection />
+                <div className="space-y-6">
+                  <StatsSection />
+                  <AccountSection />
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Single Tab Filter View */
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+              {activeTab === "personal" && (
+                <>
+                  <PersonalInfoCard />
+                  <StatsSection />
+                </>
+              )}
+              {activeTab === "privacy" && (
+                <>
+                  <PrivacySection />
+                  <SecuritySection />
+                </>
+              )}
+              {activeTab === "notifications" && (
+                <>
+                  <NotificationsSection />
+                  <PrivacySection />
+                </>
+              )}
+              {activeTab === "appearance" && (
+                <>
+                  <AppearanceSection />
+                  <StatsSection />
+                </>
+              )}
+              {activeTab === "storage" && (
+                <>
+                  <StorageDataSection />
+                  <MediaSection />
+                </>
+              )}
+              {activeTab === "security" && (
+                <>
+                  <SecuritySection />
+                  <AccountSection />
+                </>
+              )}
+              {activeTab === "media" && (
+                <>
+                  <MediaSection />
+                  <StorageDataSection />
+                </>
+              )}
+            </div>
+          )}
+
         </div>
       </div>
 
-      {/* Interactive Global Modals */}
+      {/* Global Interactive Modals */}
       <ProfileModals />
     </div>
   );
