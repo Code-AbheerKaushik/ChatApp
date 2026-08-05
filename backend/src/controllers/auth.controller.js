@@ -2,6 +2,8 @@ import { generateToken } from "../lib/utils.js";
 import User from "../models/user.model.js";
 import Session from "../models/session.model.js";
 import Message from "../models/message.model.js";
+import Otp from "../models/otp.model.js";
+import { sendSMS } from "../lib/sms.service.js";
 import bcrypt from "bcryptjs";
 import cloudinary from "../lib/cloudinary.js";
 import speakeasy from "speakeasy";
@@ -28,11 +30,98 @@ const buildUserResponse = (user) => ({
 });
 
 // ──────────────────────────────────────────────────────────────────────────────
+// OTP Phone Verification
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const sendOtp = async (req, res) => {
+  const { phone } = req.body;
+  try {
+    if (!phone || typeof phone !== "string" || phone.trim().length < 7) {
+      return res.status(400).json({ message: "Valid phone number with country code is required" });
+    }
+
+    const cleanPhone = phone.trim();
+
+    // Check if phone number is already registered by another verified account
+    const existingUser = await User.findOne({ phone: cleanPhone, isPhoneVerified: true });
+    if (existingUser) {
+      return res.status(400).json({ message: "This phone number is already registered to another account" });
+    }
+
+    // Generate 6-digit random OTP
+    const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Remove any previous active OTPs for this phone
+    await Otp.deleteMany({ phone: cleanPhone });
+
+    // Create new OTP document
+    await Otp.create({
+      phone: cleanPhone,
+      otp: generatedOtp,
+    });
+
+    // Send SMS via service (Twilio or Dev Console fallback)
+    await sendSMS(cleanPhone, generatedOtp);
+
+    res.status(200).json({
+      message: "OTP sent successfully",
+      phone: cleanPhone,
+      devOtp: process.env.NODE_ENV !== "production" ? generatedOtp : undefined,
+    });
+  } catch (error) {
+    console.error("Error in sendOtp controller:", error);
+    res.status(500).json({ message: "Failed to send OTP. Please try again." });
+  }
+};
+
+export const verifyOtp = async (req, res) => {
+  const { phone, otp } = req.body;
+  try {
+    if (!phone || !otp) {
+      return res.status(400).json({ message: "Phone number and OTP code are required" });
+    }
+
+    const cleanPhone = phone.trim();
+
+    const otpRecord = await Otp.findOne({ phone: cleanPhone });
+    if (!otpRecord) {
+      return res.status(400).json({ message: "OTP has expired or was not requested. Please click Resend OTP." });
+    }
+
+    if (otpRecord.attempts >= 3) {
+      await otpRecord.deleteOne();
+      return res.status(400).json({ message: "Too many incorrect attempts. Please request a new OTP." });
+    }
+
+    if (otpRecord.otp !== otp.trim()) {
+      otpRecord.attempts += 1;
+      await otpRecord.save();
+      return res.status(400).json({ message: `Invalid OTP code. ${3 - otpRecord.attempts} attempt(s) remaining.` });
+    }
+
+    // OTP Verified! Generate a temporary verification token
+    const verificationToken = crypto.randomBytes(24).toString("hex");
+    otpRecord.isVerified = true;
+    otpRecord.verificationToken = verificationToken;
+    await otpRecord.save();
+
+    res.status(200).json({
+      message: "Phone number verified successfully!",
+      phone: cleanPhone,
+      verificationToken,
+    });
+  } catch (error) {
+    console.error("Error in verifyOtp controller:", error);
+    res.status(500).json({ message: "Failed to verify OTP." });
+  }
+};
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Signup
 // ──────────────────────────────────────────────────────────────────────────────
 
 export const signup = async (req, res) => {
-  const { fullName, email, password } = req.body;
+  const { fullName, email, password, phone, verificationToken } = req.body;
   try {
     if (!fullName || !email || !password) {
       return res.status(400).json({ message: "All fields are required" });
@@ -45,10 +134,36 @@ export const signup = async (req, res) => {
     const user = await User.findOne({ email });
     if (user) return res.status(400).json({ message: "Email already exists" });
 
+    // Validate phone verification if provided
+    let verifiedPhone = "";
+    let isPhoneVerified = false;
+
+    if (phone && verificationToken) {
+      const cleanPhone = phone.trim();
+      const otpRecord = await Otp.findOne({ phone: cleanPhone, verificationToken, isVerified: true });
+      if (!otpRecord) {
+        return res.status(400).json({ message: "Invalid or expired phone verification. Please verify your phone number again." });
+      }
+      verifiedPhone = cleanPhone;
+      isPhoneVerified = true;
+
+      // Clean up OTP record
+      await Otp.deleteOne({ _id: otpRecord._id });
+    }
+
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    const newUser = new User({ fullName, email, password: hashedPassword });
+    const newUser = new User({
+      fullName,
+      email,
+      password: hashedPassword,
+      phone: verifiedPhone,
+      isPhoneVerified,
+      profile: {
+        phone: verifiedPhone,
+      },
+    });
     await newUser.save();
 
     const { token } = await generateToken(newUser._id, res, req);

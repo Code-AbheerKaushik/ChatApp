@@ -27,6 +27,14 @@ const userSchema = new mongoose.Schema(
       sparse: true,
       default: "",
     },
+    phone: {
+      type: String,
+      default: "",
+    },
+    isPhoneVerified: {
+      type: Boolean,
+      default: false,
+    },
 
     // ─── Extended Profile ────────────────────────────────────────────────────
     profile: {

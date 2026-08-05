@@ -15,8 +15,41 @@ export const useAuthStore = create((set, get) => ({
   isLoggingIn: false,
   isUpdatingProfile: false,
   isCheckingAuth: true,
+  isSendingOtp: false,
+  isVerifyingOtp: false,
   onlineUsers: [],
   socket: null,
+
+  sendOtp: async (phone) => {
+    set({ isSendingOtp: true });
+    try {
+      const res = await axiosInstance.post("/auth/send-otp", { phone });
+      toast.success(res.data.message || "OTP sent successfully!");
+      if (res.data.devOtp) {
+        toast(`DEV OTP Code: ${res.data.devOtp}`, { icon: "🔑", duration: 8000 });
+      }
+      return true;
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to send OTP.");
+      return false;
+    } finally {
+      set({ isSendingOtp: false });
+    }
+  },
+
+  verifyOtp: async (phone, otp) => {
+    set({ isVerifyingOtp: true });
+    try {
+      const res = await axiosInstance.post("/auth/verify-otp", { phone, otp });
+      toast.success(res.data.message || "Phone verified successfully!");
+      return res.data; // contains verificationToken
+    } catch (error) {
+      toast.error(error.response?.data?.message || "OTP verification failed.");
+      return null;
+    } finally {
+      set({ isVerifyingOtp: false });
+    }
+  },
 
   setAuthUser: (user) => set({ authUser: user }),
 

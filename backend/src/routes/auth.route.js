@@ -19,6 +19,8 @@ import {
   getStorageStats,
   exportChatData,
   getSharedMedia,
+  sendOtp,
+  verifyOtp,
   deleteAccount,
 } from "../controllers/auth.controller.js";
 import { saveOnboardingStep, checkUsernameAvailability } from "../controllers/onboarding.controller.js";
@@ -26,7 +28,9 @@ import { protectRoute } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
-// ─── Auth
+// ─── Auth & OTP
+router.post("/send-otp", sendOtp);
+router.post("/verify-otp", verifyOtp);
 router.post("/signup", signup);
 router.post("/login", login);
 router.post("/logout", logout);
