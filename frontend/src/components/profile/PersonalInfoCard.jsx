@@ -14,14 +14,21 @@ const PersonalInfoCard = () => {
       })
     : "Recently";
 
-  const username = extraProfile.username || authUser?.fullName?.toLowerCase().replace(/\s+/g, "") || "user";
+  const profile = authUser?.profile || {};
+  const username = profile.username || authUser?.username || authUser?.fullName?.toLowerCase().replace(/\s+/g, "") || "user";
+  const bio = profile.bio || authUser?.bio || "Available";
+  const phone = profile.phone || authUser?.phone || "Not specified";
+  const statusMessage = profile.statusMessage || "Can't talk, chat only 💬";
+  const location = profile.location || authUser?.location || "Not specified";
+  const dob = profile.dob || authUser?.dob || "Not specified";
+  const gender = profile.gender || authUser?.gender || "Not specified";
 
   const infoItems = [
     {
       id: "name",
       icon: User,
       label: "Full Name",
-      value: authUser?.fullName,
+      value: authUser?.fullName || "N/A",
       editable: true,
     },
     {
@@ -35,7 +42,7 @@ const PersonalInfoCard = () => {
       id: "email",
       icon: Mail,
       label: "Email Address",
-      value: authUser?.email,
+      value: authUser?.email || "N/A",
       editable: false,
       badge: "Verified",
     },
@@ -43,28 +50,42 @@ const PersonalInfoCard = () => {
       id: "phone",
       icon: Phone,
       label: "Phone Number",
-      value: extraProfile.phone || "+1 (555) 000-0000",
+      value: phone,
       editable: true,
     },
     {
-      id: "status",
+      id: "bio",
       icon: Smile,
-      label: "Status Message",
-      value: extraProfile.statusMessage || "Can't talk, chat only",
+      label: "Bio / About",
+      value: bio,
       editable: true,
     },
     {
       id: "location",
       icon: MapPin,
       label: "Location",
-      value: extraProfile.location || "Not specified",
+      value: location,
       editable: true,
     },
     {
       id: "dob",
       icon: Calendar,
       label: "Date of Birth",
-      value: extraProfile.dob || "May 14, 1998",
+      value: dob,
+      editable: true,
+    },
+    {
+      id: "gender",
+      icon: User,
+      label: "Gender",
+      value: gender,
+      editable: true,
+    },
+    {
+      id: "statusMessage",
+      icon: Smile,
+      label: "Status Message",
+      value: statusMessage,
       editable: true,
     },
     {

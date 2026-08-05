@@ -18,6 +18,11 @@ export const saveOnboardingStep = async (req, res) => {
       for (const [key, value] of Object.entries(profile)) {
         updatePayload[`profile.${key}`] = value;
       }
+      if (profile.username) {
+        const cleanUsername = profile.username.toLowerCase().trim();
+        updatePayload["profile.username"] = cleanUsername;
+        updatePayload["username"] = cleanUsername;
+      }
       // Keep fullName in sync with displayName when name is set
       if (profile.firstName || profile.lastName) {
         const existing = await User.findById(userId).select("profile.firstName profile.lastName");
@@ -38,10 +43,14 @@ export const saveOnboardingStep = async (req, res) => {
 
     // Handle profile picture upload to Cloudinary
     if (profilePic) {
-      const uploadResponse = await cloudinary.uploader.upload(profilePic, {
-        folder: "chatty_profiles",
-      });
-      updatePayload["profilePic"] = uploadResponse.secure_url;
+      if (profilePic.startsWith("data:image")) {
+        const uploadResponse = await cloudinary.uploader.upload(profilePic, {
+          folder: "chatty_profiles",
+        });
+        updatePayload["profilePic"] = uploadResponse.secure_url;
+      } else {
+        updatePayload["profilePic"] = profilePic;
+      }
     }
 
     // Track onboarding progress
@@ -50,6 +59,7 @@ export const saveOnboardingStep = async (req, res) => {
     }
     if (onboardingComplete === true) {
       updatePayload["onboardingComplete"] = true;
+      updatePayload["profileCompleted"] = true;
     }
 
     const updatedUser = await User.findByIdAndUpdate(

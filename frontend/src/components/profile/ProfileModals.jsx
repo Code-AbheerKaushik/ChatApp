@@ -19,14 +19,16 @@ const ProfileModals = () => {
     updatePrivacy,
   } = useProfileStore();
 
-  // --- Form States for Edit Profile ---
+  // --- Form States for Edit Profile (Pre-filled from MongoDB authUser) ---
+  const profile = authUser?.profile || {};
   const [fullName, setFullName] = useState(authUser?.fullName || "");
-  const [username, setUsername] = useState(extraProfile.username || "");
-  const [bio, setBio] = useState(extraProfile.bio || "");
-  const [phone, setPhone] = useState(extraProfile.phone || "");
-  const [location, setLocation] = useState(extraProfile.location || "");
-  const [dob, setDob] = useState(extraProfile.dob || "");
-  const [statusMessage, setStatusMessage] = useState(extraProfile.statusMessage || "");
+  const [username, setUsername] = useState(profile.username || authUser?.username || "");
+  const [bio, setBio] = useState(profile.bio || authUser?.bio || "");
+  const [phone, setPhone] = useState(profile.phone || authUser?.phone || "");
+  const [location, setLocation] = useState(profile.location || authUser?.location || "");
+  const [dob, setDob] = useState(profile.dob || authUser?.dob || "");
+  const [gender, setGender] = useState(profile.gender || authUser?.gender || "");
+  const [statusMessage, setStatusMessage] = useState(profile.statusMessage || authUser?.statusMessage || "");
 
   // --- Form States for Password Change ---
   const [currentPassword, setCurrentPassword] = useState("");
@@ -39,18 +41,21 @@ const ProfileModals = () => {
 
   const handleSaveProfile = async (e) => {
     e.preventDefault();
-    if (fullName !== authUser?.fullName) {
-      await updateProfile({ fullName });
+    try {
+      await updateProfile({
+        fullName,
+        username,
+        bio,
+        phone,
+        location,
+        dob,
+        gender,
+        statusMessage,
+      });
+      closeModal();
+    } catch {
+      // Toast error displayed by store
     }
-    updateExtraProfile({
-      username,
-      bio,
-      phone,
-      location,
-      dob,
-      statusMessage,
-    });
-    closeModal();
   };
 
   const handleChangePasswordSubmit = (e) => {
@@ -156,7 +161,7 @@ const ProfileModals = () => {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block font-semibold mb-1">Status Message</label>
                 <input
@@ -169,11 +174,26 @@ const ProfileModals = () => {
               <div>
                 <label className="block font-semibold mb-1">Date of Birth</label>
                 <input
-                  type="date"
+                  type="text"
+                  placeholder="YYYY-MM-DD"
                   value={dob}
                   onChange={(e) => setDob(e.target.value)}
                   className="input input-bordered w-full rounded-xl"
                 />
+              </div>
+              <div>
+                <label className="block font-semibold mb-1">Gender</label>
+                <select
+                  value={gender}
+                  onChange={(e) => setGender(e.target.value)}
+                  className="select select-bordered w-full rounded-xl"
+                >
+                  <option value="">Select Gender</option>
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Non-binary">Non-binary</option>
+                  <option value="Prefer not to say">Prefer not to say</option>
+                </select>
               </div>
             </div>
 

@@ -21,7 +21,8 @@ const ProfileHeader = () => {
     };
   };
 
-  const username = extraProfile.username || authUser?.fullName?.toLowerCase().replace(/\s+/g, "") || "user";
+  const username = authUser?.profile?.username || authUser?.username || authUser?.fullName?.toLowerCase().replace(/\s+/g, "") || "user";
+  const bio = authUser?.profile?.bio || authUser?.bio || "Available";
 
   return (
     <div className="relative bg-base-100/90 backdrop-blur-md border border-base-300 rounded-2xl p-6 shadow-sm hover:shadow-md transition-all duration-300">
@@ -75,12 +76,10 @@ const ProfileHeader = () => {
             <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-base-content">
               {authUser?.fullName}
             </h2>
-            {extraProfile.isVerified && (
-              <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20" title="Verified Account">
-                <CheckCircle2 className="w-3.5 h-3.5 fill-primary text-base-100" />
-                Verified
-              </span>
-            )}
+            <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20" title="Verified Account">
+              <CheckCircle2 className="w-3.5 h-3.5 fill-primary text-base-100" />
+              Active Profile
+            </span>
           </div>
 
           <p className="text-sm font-medium text-base-content/60 flex items-center justify-center sm:justify-start gap-1">
@@ -93,7 +92,7 @@ const ProfileHeader = () => {
           </p>
 
           <p className="text-xs sm:text-sm text-base-content/80 pt-1 line-clamp-2 max-w-md italic">
-            "{extraProfile.bio || "Available"}"
+            "{bio}"
           </p>
         </div>
 

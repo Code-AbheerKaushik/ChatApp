@@ -21,6 +21,12 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    username: {
+      type: String,
+      unique: true,
+      sparse: true,
+      default: "",
+    },
 
     // ─── Extended Profile ────────────────────────────────────────────────────
     profile: {
@@ -28,12 +34,16 @@ const userSchema = new mongoose.Schema(
       lastName: { type: String, default: "" },
       displayName: { type: String, default: "" },
       username: { type: String, default: "", unique: true, sparse: true },
-      bio: { type: String, default: "", maxlength: 150 },
+      bio: { type: String, default: "Available", maxlength: 150 },
       dob: { type: String, default: "" },
       gender: { type: String, default: "" },
       location: { type: String, default: "" },
-      statusMessage: { type: String, default: "" },
+      statusMessage: { type: String, default: "Can't talk, chat only 💬" },
       phone: { type: String, default: "" },
+      interests: { type: [String], default: [] },
+      hobbies: { type: [String], default: [] },
+      education: { type: String, default: "" },
+      work: { type: String, default: "" },
     },
 
     // ─── Privacy Preferences ─────────────────────────────────────────────────
@@ -44,9 +54,10 @@ const userSchema = new mongoose.Schema(
       birthdayVisibility: { type: String, default: "Contacts" },
     },
 
-    // ─── Onboarding Flow ─────────────────────────────────────────────────────
+    // ─── Onboarding & Profile State ──────────────────────────────────────────
     onboardingStep: { type: Number, default: 0 },
     onboardingComplete: { type: Boolean, default: false },
+    profileCompleted: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

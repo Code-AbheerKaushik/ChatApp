@@ -97,24 +97,101 @@ export const logout = (req, res) => {
 
 export const updateProfile = async (req, res) => {
   try {
-    const { profilePic } = req.body;
     const userId = req.user._id;
+    const {
+      fullName,
+      profilePic,
+      profile,
+      privacy,
+      phone,
+      username,
+      bio,
+      location,
+      dob,
+      gender,
+      interests,
+      hobbies,
+      education,
+      work,
+      statusMessage,
+    } = req.body;
 
-    if (!profilePic) {
-      return res.status(400).json({ message: "Profile pic is required" });
+    const updatePayload = {};
+
+    // 1. Profile Picture upload to Cloudinary (if string base64 / new file provided)
+    if (profilePic) {
+      if (typeof profilePic === "string" && profilePic.startsWith("data:image")) {
+        const uploadResponse = await cloudinary.uploader.upload(profilePic, {
+          folder: "chatty_profiles",
+        });
+        updatePayload["profilePic"] = uploadResponse.secure_url;
+      } else {
+        updatePayload["profilePic"] = profilePic;
+      }
     }
 
-    const uploadResponse = await cloudinary.uploader.upload(profilePic);
+    // 2. Direct top-level fullName update
+    if (fullName && typeof fullName === "string" && fullName.trim().length > 0) {
+      updatePayload["fullName"] = fullName.trim();
+      updatePayload["profile.displayName"] = fullName.trim();
+    }
+
+    // 3. Username uniqueness check
+    const targetUsername = username || profile?.username;
+    if (targetUsername) {
+      const u = targetUsername.toLowerCase().trim();
+      if (!/^[a-z0-9_.]+$/.test(u)) {
+        return res.status(400).json({ message: "Username can only contain lowercase letters, numbers, _, and ." });
+      }
+      const existing = await User.findOne({
+        $or: [{ "profile.username": u }, { username: u }],
+      });
+      if (existing && String(existing._id) !== String(userId)) {
+        return res.status(400).json({ message: "Username is already taken by another user." });
+      }
+      updatePayload["profile.username"] = u;
+      updatePayload["username"] = u;
+    }
+
+    // 4. Update profile object & individual fields
+    if (profile && typeof profile === "object") {
+      for (const [key, val] of Object.entries(profile)) {
+        updatePayload[`profile.${key}`] = val;
+      }
+    }
+
+    if (bio !== undefined) updatePayload["profile.bio"] = bio;
+    if (location !== undefined) updatePayload["profile.location"] = location;
+    if (dob !== undefined) updatePayload["profile.dob"] = dob;
+    if (gender !== undefined) updatePayload["profile.gender"] = gender;
+    if (phone !== undefined) updatePayload["profile.phone"] = phone;
+    if (interests !== undefined) updatePayload["profile.interests"] = Array.isArray(interests) ? interests : [interests];
+    if (hobbies !== undefined) updatePayload["profile.hobbies"] = Array.isArray(hobbies) ? hobbies : [hobbies];
+    if (education !== undefined) updatePayload["profile.education"] = education;
+    if (work !== undefined) updatePayload["profile.work"] = work;
+    if (statusMessage !== undefined) updatePayload["profile.statusMessage"] = statusMessage;
+
+    // 5. Update privacy preferences if provided
+    if (privacy && typeof privacy === "object") {
+      for (const [key, val] of Object.entries(privacy)) {
+        updatePayload[`privacy.${key}`] = val;
+      }
+    }
+
     const updatedUser = await User.findByIdAndUpdate(
       userId,
-      { profilePic: uploadResponse.secure_url },
+      { $set: updatePayload },
       { new: true }
-    );
+    ).select("-password");
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
 
     res.status(200).json(updatedUser);
   } catch (error) {
-    console.log("error in update profile:", error);
-    res.status(500).json({ message: "Internal server error" });
+    console.error("error in update profile:", error);
+    res.status(500).json({ message: error.message || "Internal server error" });
   }
 };
 

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import toast from "react-hot-toast";
+import { useAuthStore } from "./useAuthStore";
 
 const loadLocal = (key, fallback) => {
   try {
@@ -19,22 +20,16 @@ const saveLocal = (key, value) => {
 };
 
 export const useProfileStore = create((set, get) => ({
-  // --- Extra Profile Fields (Persisted locally & fallback to auth user) ---
-  extraProfile: loadLocal("chatty_extra_profile", {
-    username: "",
-    bio: "Available",
-    phone: "+1 (555) 234-5678",
-    statusMessage: "Can't talk, chat only 💬",
-    location: "San Francisco, CA",
-    dob: "1998-05-14",
-    isVerified: true,
-  }),
+  // --- Extra Profile Fields (Persisted via MongoDB authUser) ---
+  extraProfile: {},
 
-  updateExtraProfile: (updates) => {
-    const updated = { ...get().extraProfile, ...updates };
-    saveLocal("chatty_extra_profile", updated);
-    set({ extraProfile: updated });
-    toast.success("Profile details saved");
+  updateExtraProfile: async (updates) => {
+    try {
+      await useAuthStore.getState().updateProfile(updates);
+      set({ extraProfile: updates });
+    } catch {
+      // handled by authStore error toast
+    }
   },
 
   // --- Privacy Settings ---
