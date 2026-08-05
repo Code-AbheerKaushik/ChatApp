@@ -1,17 +1,16 @@
 import { useChatStore } from "../store/useChatStore";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import ChatHeader from "./ChatHeader";
 import MessageInput from "./MessageInput";
 import MessageSkeleton from "./skeletons/MessageSkeleton";
 import { useAuthStore } from "../store/useAuthStore";
 import { formatMessageTime } from "../lib/utils";
-import { Reply, Pencil, Trash2, SmilePlus, Pin, Copy, X, ChevronDown } from "lucide-react";
+import { Reply, Pencil, Trash2, SmilePlus, Pin, Copy, X, ChevronDown, ArrowDown } from "lucide-react";
 
 const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
 
 const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit, onDelete, onReact, onPin, conversationSearchQuery }) => {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [emojiBarOpen, setEmojiBarOpen] = useState(false);
   const menuRef = useRef(null);
 
   // Group reactions by emoji
@@ -43,17 +42,17 @@ const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit
         className="size-8 rounded-full object-cover flex-shrink-0 self-end mb-1"
       />
 
-      <div className={`flex flex-col max-w-[75%] sm:max-w-[65%] ${isOwn ? "items-end" : "items-start"}`}>
+      <div className={`flex flex-col max-w-[80%] sm:max-w-[65%] ${isOwn ? "items-end" : "items-start"}`}>
         {/* Pinned indicator */}
         {message.isPinned && (
-          <div className="flex items-center gap-1 text-xs text-primary mb-1">
+          <div className="flex items-center gap-1 text-[11px] text-primary mb-0.5">
             <Pin className="size-3" /> <span>Pinned</span>
           </div>
         )}
 
         {/* Reply preview */}
         {replyPreview && (
-          <div className={`text-xs px-2 py-1 rounded-lg mb-1 border-l-2 border-primary bg-base-200 max-w-full truncate`}>
+          <div className="text-xs px-2.5 py-1 rounded-lg mb-1 border-l-2 border-primary bg-base-200/80 max-w-full truncate">
             <span className="font-medium text-primary">Reply</span>
             <p className="truncate text-base-content/60">{replyPreview.text || "📎 Attachment"}</p>
           </div>
@@ -62,10 +61,10 @@ const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit
         {/* Message Bubble */}
         <div className="relative">
           <div
-            className={`chat-bubble relative rounded-2xl px-4 py-2.5 shadow-sm ${
+            className={`chat-bubble relative rounded-2xl px-3.5 py-2 shadow-sm ${
               isOwn
-                ? "bg-primary text-primary-content rounded-br-sm"
-                : "bg-base-200 text-base-content rounded-bl-sm"
+                ? "bg-primary text-primary-content rounded-br-xs"
+                : "bg-base-200 text-base-content rounded-bl-xs"
             }`}
           >
             {/* Image */}
@@ -73,7 +72,7 @@ const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit
               <img
                 src={message.image}
                 alt="Attachment"
-                className="max-w-[200px] w-full rounded-xl mb-2 cursor-pointer"
+                className="max-w-[220px] sm:max-w-[280px] w-full rounded-xl mb-1.5 cursor-pointer object-cover max-h-60"
               />
             )}
 
@@ -83,7 +82,7 @@ const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit
                 href={message.file}
                 target="_blank"
                 rel="noopener noreferrer"
-                className={`flex items-center gap-2 text-sm underline mb-1 ${isOwn ? "text-primary-content/80" : "text-base-content/70"}`}
+                className={`flex items-center gap-2 text-sm underline mb-1 ${isOwn ? "text-primary-content/90" : "text-base-content/80"}`}
               >
                 {message.fileType === "audio" ? "🎤" : message.fileType === "video" ? "🎥" : "📄"}
                 {" "}{message.fileType === "audio" ? "Voice message" : "Attachment"}
@@ -92,21 +91,21 @@ const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit
 
             {/* Text */}
             {message.text && (
-              <p className="text-sm whitespace-pre-wrap break-words">{highlight(message.text)}</p>
+              <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{highlight(message.text)}</p>
             )}
 
-            {/* Timestamp + edited + read */}
-            <div className={`flex items-center gap-1 mt-1 ${isOwn ? "justify-end" : "justify-start"}`}>
-              <time className={`text-[10px] ${isOwn ? "text-primary-content/60" : "text-base-content/40"}`}>
+            {/* Timestamp + edited */}
+            <div className={`flex items-center gap-1 mt-0.5 ${isOwn ? "justify-end" : "justify-start"}`}>
+              <time className={`text-[10px] ${isOwn ? "text-primary-content/70" : "text-base-content/50"}`}>
                 {formatMessageTime(message.createdAt)}
               </time>
               {message.edited && (
-                <span className={`text-[10px] italic ${isOwn ? "text-primary-content/50" : "text-base-content/40"}`}>edited</span>
+                <span className={`text-[10px] italic ${isOwn ? "text-primary-content/60" : "text-base-content/40"}`}>edited</span>
               )}
             </div>
           </div>
 
-          {/* Reaction Bar on Hover */}
+          {/* Quick Emoji Bar on Hover */}
           <div
             className={`absolute ${isOwn ? "right-0" : "left-0"} -bottom-5 hidden group-hover:flex items-center gap-1 z-10`}
           >
@@ -120,24 +119,18 @@ const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit
                   {emoji}
                 </button>
               ))}
-              <button
-                onClick={() => setMenuOpen(!menuOpen)}
-                className="btn btn-ghost btn-xs btn-circle"
-              >
-                <ChevronDown className="size-3" />
-              </button>
             </div>
           </div>
         </div>
 
         {/* Reactions display */}
         {Object.keys(reactionGroups).length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-5 mb-1">
+          <div className="flex flex-wrap gap-1 mt-1 mb-0.5">
             {Object.entries(reactionGroups).map(([emoji, count]) => (
               <button
                 key={emoji}
                 onClick={() => onReact(message._id, emoji)}
-                className="bg-base-200 hover:bg-base-300 rounded-full px-2 py-0.5 text-xs flex items-center gap-1 transition-colors"
+                className="bg-base-200 hover:bg-base-300 rounded-full px-2 py-0.5 text-xs flex items-center gap-1 transition-colors border border-base-300"
               >
                 {emoji} <span className="text-base-content/60">{count}</span>
               </button>
@@ -148,14 +141,14 @@ const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit
 
       {/* Message Context Menu */}
       <div
-        className={`self-center opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0`}
+        className="self-center opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
         ref={menuRef}
       >
         <div className="dropdown dropdown-end">
-          <button className="btn btn-ghost btn-xs btn-circle" tabIndex={0}>
+          <button className="btn btn-ghost btn-xs btn-circle" tabIndex={0} aria-label="Message options">
             <ChevronDown className="size-3.5" />
           </button>
-          <ul className="dropdown-content z-20 menu p-1 shadow-lg bg-base-100 rounded-xl border border-base-300 w-36 text-sm">
+          <ul className="dropdown-content z-30 menu p-1 shadow-lg bg-base-100 rounded-xl border border-base-300 w-36 text-sm">
             <li>
               <button className="flex items-center gap-2" onClick={() => onReply(message)}>
                 <Reply className="size-3.5" /> Reply
@@ -204,21 +197,83 @@ const ChatContainer = () => {
     conversationSearchQuery,
   } = useChatStore();
   const { authUser } = useAuthStore();
-  const messageEndRef = useRef(null);
+
+  const messagesContainerRef = useRef(null);
+  const isFirstLoadRef = useRef(true);
+  const prevMessagesLengthRef = useRef(0);
+
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [hasNewMessagesBelow, setHasNewMessagesBelow] = useState(false);
   const [editingMessage, setEditingMessage] = useState(null);
   const [editText, setEditText] = useState("");
 
+  // Scroll helper
+  const scrollToBottom = useCallback((behavior = "smooth") => {
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTo({
+        top: messagesContainerRef.current.scrollHeight,
+        behavior,
+      });
+      setHasNewMessagesBelow(false);
+      setIsAtBottom(true);
+    }
+  }, []);
+
+  // Monitor scroll position
+  const handleScroll = useCallback(() => {
+    if (!messagesContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
+    const distanceToBottom = scrollHeight - scrollTop - clientHeight;
+    const nearBottom = distanceToBottom < 100;
+    setIsAtBottom(nearBottom);
+    if (nearBottom) {
+      setHasNewMessagesBelow(false);
+    }
+  }, []);
+
+  // Fetch messages & subscribe socket
   useEffect(() => {
     getMessages(selectedUser._id);
     subscribeToMessages();
     return () => unsubscribeFromMessages();
   }, [selectedUser._id, getMessages, subscribeToMessages, unsubscribeFromMessages]);
 
+  // Reset scroll flags on user change
   useEffect(() => {
-    if (messageEndRef.current && messages) {
-      messageEndRef.current.scrollIntoView({ behavior: "smooth" });
+    isFirstLoadRef.current = true;
+    prevMessagesLengthRef.current = 0;
+    setHasNewMessagesBelow(false);
+    setIsAtBottom(true);
+  }, [selectedUser._id]);
+
+  // Smart auto-scroll effect
+  useEffect(() => {
+    if (!messages || messages.length === 0) return;
+
+    if (isFirstLoadRef.current) {
+      // First load for conversation -> jump to bottom immediately
+      scrollToBottom("auto");
+      isFirstLoadRef.current = false;
+      prevMessagesLengthRef.current = messages.length;
+      return;
     }
-  }, [messages]);
+
+    const isNewMessage = messages.length > prevMessagesLengthRef.current;
+    const lastMessage = messages[messages.length - 1];
+    const isOwnMessage = lastMessage?.senderId === authUser._id;
+
+    if (isNewMessage) {
+      if (isAtBottom || isOwnMessage) {
+        scrollToBottom("smooth");
+      } else {
+        setHasNewMessagesBelow(true);
+      }
+    } else if (isAtBottom) {
+      scrollToBottom("smooth");
+    }
+
+    prevMessagesLengthRef.current = messages.length;
+  }, [messages, authUser._id, isAtBottom, scrollToBottom]);
 
   const pinnedMessages = messages.filter((m) => m.isPinned);
 
@@ -237,7 +292,7 @@ const ChatContainer = () => {
 
   if (isMessagesLoading) {
     return (
-      <div className="flex-1 flex flex-col overflow-auto">
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
         <ChatHeader />
         <MessageSkeleton />
         <MessageInput />
@@ -246,23 +301,26 @@ const ChatContainer = () => {
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      <ChatHeader />
+    <div className="flex-1 flex flex-col h-full overflow-hidden relative bg-base-100">
+      {/* Fixed Header */}
+      <div className="flex-shrink-0 z-20 bg-base-100 border-b border-base-300">
+        <ChatHeader />
+      </div>
 
-      {/* Pinned Messages Banner */}
+      {/* Pinned Banner */}
       {pinnedMessages.length > 0 && (
-        <div className="px-4 py-2 bg-primary/10 border-b border-primary/20 flex items-center gap-2 text-sm">
-          <Pin className="size-3.5 text-primary" />
-          <span className="text-primary font-medium flex-1 truncate">
+        <div className="flex-shrink-0 z-10 px-4 py-2 bg-primary/10 border-b border-primary/20 flex items-center gap-2 text-sm">
+          <Pin className="size-3.5 text-primary flex-shrink-0" />
+          <span className="text-primary font-medium flex-1 truncate text-xs sm:text-sm">
             {pinnedMessages[pinnedMessages.length - 1].text || "📎 Pinned message"}
           </span>
-          <span className="text-xs text-base-content/50">{pinnedMessages.length} pinned</span>
+          <span className="text-[11px] text-base-content/50 flex-shrink-0">{pinnedMessages.length} pinned</span>
         </div>
       )}
 
-      {/* Edit message bar */}
+      {/* Inline Edit Bar */}
       {editingMessage && (
-        <div className="px-4 py-2 bg-warning/10 border-b border-warning/30 flex items-center gap-2">
+        <div className="flex-shrink-0 z-10 px-4 py-2 bg-warning/10 border-b border-warning/30 flex items-center gap-2">
           <Pencil className="size-4 text-warning flex-shrink-0" />
           <input
             value={editText}
@@ -278,8 +336,12 @@ const ChatContainer = () => {
         </div>
       )}
 
-      {/* Messages area */}
-      <div className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 space-y-6">
+      {/* ONLY THIS MESSAGES CONTAINER SCROLLS */}
+      <div
+        ref={messagesContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto min-h-0 messages-scrollbar px-3 sm:px-4 py-3 space-y-3"
+      >
         {filteredMessages.length === 0 && conversationSearchQuery ? (
           <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
             <p className="text-sm text-base-content/50">No messages match "{conversationSearchQuery}"</p>
@@ -301,10 +363,32 @@ const ChatContainer = () => {
             />
           ))
         )}
-        <div ref={messageEndRef} />
       </div>
 
-      <MessageInput />
+      {/* Floating "New Messages" / "Scroll to bottom" button */}
+      {(!isAtBottom || hasNewMessagesBelow) && (
+        <button
+          onClick={() => scrollToBottom("smooth")}
+          className={`absolute bottom-16 sm:bottom-20 right-4 z-30 btn btn-circle btn-primary btn-sm shadow-xl flex items-center justify-center transition-all duration-200 hover:scale-110 ${
+            hasNewMessagesBelow ? "ring-2 ring-primary ring-offset-2 animate-bounce" : ""
+          }`}
+          title="Scroll to bottom"
+          aria-label="Scroll to latest message"
+        >
+          <ArrowDown className="size-4" />
+          {hasNewMessagesBelow && (
+            <span className="absolute -top-1 -right-1 flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-error opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-error"></span>
+            </span>
+          )}
+        </button>
+      )}
+
+      {/* Fixed Message Composer */}
+      <div className="flex-shrink-0 z-20 bg-base-100">
+        <MessageInput />
+      </div>
     </div>
   );
 };
