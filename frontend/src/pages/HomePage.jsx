@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useChatStore } from "../store/useChatStore";
 import { Link, useLocation } from "react-router-dom";
 import { MessageSquare, Users, Phone, User } from "lucide-react";
@@ -11,8 +12,15 @@ const HomePage = () => {
   const { selectedUser } = useChatStore();
   const viewportHeight = useVisualViewport();
   const location = useLocation();
+  const [isMobile, setIsMobile] = useState(typeof window !== "undefined" ? window.innerWidth < 640 : false);
 
-  const mobileHeightStyle = viewportHeight ? { height: `${viewportHeight}px` } : { height: "100dvh" };
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 640);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  const mobileHeightStyle = isMobile && selectedUser && viewportHeight ? { height: `${viewportHeight}px` } : undefined;
 
   return (
     <div className="h-screen h-[100dvh] bg-base-200 flex flex-col overflow-hidden w-full relative">
@@ -27,7 +35,7 @@ const HomePage = () => {
 
           {/* Chat conversation panel */}
           <div
-            style={selectedUser ? mobileHeightStyle : undefined}
+            style={mobileHeightStyle}
             className={`h-full flex-1 min-w-0 ${!selectedUser ? "hidden md:flex" : "flex flex-col w-full fixed inset-0 z-50 sm:relative sm:inset-auto sm:z-auto sm:h-full bg-base-100 overflow-hidden"}`}
           >
             {!selectedUser ? <NoChatSelected /> : <ChatContainer />}
