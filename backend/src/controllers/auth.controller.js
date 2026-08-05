@@ -37,6 +37,10 @@ export const signup = async (req, res) => {
         fullName: newUser.fullName,
         email: newUser.email,
         profilePic: newUser.profilePic,
+        profile: newUser.profile,
+        privacy: newUser.privacy,
+        onboardingStep: newUser.onboardingStep,
+        onboardingComplete: newUser.onboardingComplete ?? false,
         token,
       });
     } else {
@@ -69,6 +73,10 @@ export const login = async (req, res) => {
       fullName: user.fullName,
       email: user.email,
       profilePic: user.profilePic,
+      profile: user.profile,
+      privacy: user.privacy,
+      onboardingStep: user.onboardingStep,
+      onboardingComplete: user.onboardingComplete ?? false,
       token,
     });
   } catch (error) {
