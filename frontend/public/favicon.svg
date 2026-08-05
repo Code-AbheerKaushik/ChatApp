@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="chattyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366F1" />
+      <stop offset="50%" stop-color="#8B5CF6" />
+      <stop offset="100%" stop-color="#EC4899" />
+    </linearGradient>
+    <linearGradient id="innerGlow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.25" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#6366F1" flood-opacity="0.35" />
+    </filter>
+  </defs>
+  
+  <!-- Outer Rounded Square Background with Gradient -->
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#chattyGrad)" filter="url(#shadow)" />
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#innerGlow)" />
+
+  <!-- Chat Bubble Icon -->
+  <path d="M160 160C142.3 160 128 174.3 128 192V304C128 321.7 142.3 336 160 336H192V376C192 386.7 203.7 393.3 213 388L277 336H352C369.7 336 384 321.7 384 304V192C384 174.3 369.7 160 352 160H160Z" fill="white" fill-opacity="0.95" />
+  
+  <!-- Modern Message Sparks inside Bubble -->
+  <circle cx="216" cy="248" r="18" fill="url(#chattyGrad)" />
+  <circle cx="256" cy="248" r="18" fill="url(#chattyGrad)" />
+  <circle cx="296" cy="248" r="18" fill="url(#chattyGrad)" />
+</svg>
