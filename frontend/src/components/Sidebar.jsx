@@ -4,7 +4,7 @@ import { useAuthStore } from "../store/useAuthStore";
 import SidebarSkeleton from "./skeletons/SidebarSkeleton";
 import {
   Users, Search, X, Pin, Archive, BellOff, Star,
-  MailOpen, Trash2, CheckCheck, ChevronDown
+  MailOpen, CheckCheck, MoreVertical, Trash2, Info
 } from "lucide-react";
 
 const FILTERS = [
@@ -41,57 +41,145 @@ const formatTime = (dateStr) => {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 };
 
+// ─── Overflow Menu ────────────────────────────────────────────────────────────
+const OverflowMenu = ({ userId, isPinned, isMuted, isFavorite, isArchived, hasUnread, onClose, actions, anchorRef }) => {
+  const menuRef = useRef(null);
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (
+        menuRef.current && !menuRef.current.contains(e.target) &&
+        anchorRef.current && !anchorRef.current.contains(e.target)
+      ) {
+        onClose();
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [onClose, anchorRef]);
+
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const menuItems = [
+    {
+      icon: <Pin className={`size-4 ${isPinned ? "text-primary" : ""}`} />,
+      label: isPinned ? "Unpin Chat" : "Pin Chat",
+      action: actions.togglePin,
+    },
+    {
+      icon: <MailOpen className="size-4" />,
+      label: hasUnread ? "Mark as Read" : "Mark as Unread",
+      action: actions.toggleUnread,
+    },
+    {
+      icon: <BellOff className={`size-4 ${isMuted ? "text-warning" : ""}`} />,
+      label: isMuted ? "Unmute Notifications" : "Mute Notifications",
+      action: actions.toggleMute,
+    },
+    {
+      icon: <Star className={`size-4 ${isFavorite ? "text-yellow-500" : ""}`} fill={isFavorite ? "currentColor" : "none"} />,
+      label: isFavorite ? "Remove from Favorites" : "Add to Favorites",
+      action: actions.toggleFavorite,
+    },
+    {
+      icon: <Archive className={`size-4 ${isArchived ? "text-info" : ""}`} />,
+      label: isArchived ? "Unarchive Chat" : "Archive Chat",
+      action: actions.toggleArchive,
+    },
+    { divider: true },
+    {
+      icon: <Info className="size-4 text-base-content/60" />,
+      label: "View Contact Info",
+      action: actions.viewInfo,
+    },
+    {
+      icon: <Trash2 className="size-4 text-error" />,
+      label: "Delete Chat",
+      labelClass: "text-error",
+      action: actions.deleteChat,
+    },
+  ];
+
+  return (
+    <div
+      ref={menuRef}
+      role="menu"
+      aria-label="Chat options"
+      className="absolute right-0 top-full mt-1 z-50 w-52 origin-top-right
+        rounded-xl bg-base-100 border border-base-300
+        shadow-[0_8px_32px_rgba(0,0,0,0.12)]
+        animate-[menuIn_0.12s_ease-out]
+        overflow-hidden"
+      style={{ minWidth: "13rem" }}
+    >
+      {menuItems.map((item, idx) => {
+        if (item.divider) {
+          return <div key={`div-${idx}`} className="my-1 h-px bg-base-300" />;
+        }
+        return (
+          <button
+            key={item.label}
+            role="menuitem"
+            onClick={() => { item.action?.(); onClose(); }}
+            className={`flex items-center gap-3 w-full px-4 py-2.5 text-sm
+              hover:bg-base-200 active:bg-base-300
+              transition-colors duration-100 text-left focus:outline-none focus:bg-base-200
+              ${item.labelClass || "text-base-content"}`}
+          >
+            <span className="flex-shrink-0">{item.icon}</span>
+            <span>{item.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
+// ─── Sidebar ──────────────────────────────────────────────────────────────────
 const Sidebar = () => {
   const {
     getUsers, users, selectedUser, setSelectedUser, isUsersLoading,
     searchQuery, setSearchQuery,
     activeFilter, setActiveFilter,
     pinnedUsers, archivedUsers, mutedUsers, favoriteUsers, unreadUsers,
-    togglePinnedUser, toggleArchivedUser, toggleMutedUser, toggleFavoriteUser, markUnread,
+    togglePinnedUser, toggleArchivedUser, toggleMutedUser, toggleFavoriteUser,
+    markUnread, clearUnread,
   } = useChatStore();
 
   const { onlineUsers } = useAuthStore();
-  const [quickActionUser, setQuickActionUser] = useState(null);
-  const [longPressTimer, setLongPressTimer] = useState(null);
-  const menuRef = useRef(null);
+  const [openMenuId, setOpenMenuId] = useState(null);
+  const menuButtonRefs = useRef({});
 
   useEffect(() => {
     getUsers();
   }, [getUsers]);
 
-  // Close menu on outside click
-  useEffect(() => {
-    const handler = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) setQuickActionUser(null);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
-
   const isOnline = useCallback((userId) => onlineUsers.includes(String(userId)), [onlineUsers]);
 
   const filteredUsers = users.filter((user) => {
     const id = user._id;
-    // Search filter
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const matches = user.fullName?.toLowerCase().includes(q) || user.email?.toLowerCase().includes(q);
       if (!matches) return false;
     }
-    // Category filters
     switch (activeFilter) {
-      case "unread": return unreadUsers.includes(id);
-      case "pinned": return pinnedUsers.includes(id);
+      case "unread":    return unreadUsers.includes(id);
+      case "pinned":    return pinnedUsers.includes(id);
       case "favorites": return favoriteUsers.includes(id);
-      case "archived": return archivedUsers.includes(id);
-      case "muted": return mutedUsers.includes(id);
-      case "online": return isOnline(id);
-      default:
-        return !archivedUsers.includes(id); // hide archived from "all"
+      case "archived":  return archivedUsers.includes(id);
+      case "muted":     return mutedUsers.includes(id);
+      case "online":    return isOnline(id);
+      default:          return !archivedUsers.includes(id);
     }
   });
 
-  // Sort: pinned first, then by last message time
   const sortedUsers = [...filteredUsers].sort((a, b) => {
     const aPinned = pinnedUsers.includes(a._id) ? 1 : 0;
     const bPinned = pinnedUsers.includes(b._id) ? 1 : 0;
@@ -100,15 +188,6 @@ const Sidebar = () => {
     const bTime = b.lastMessage?.createdAt || b.createdAt;
     return new Date(bTime) - new Date(aTime);
   });
-
-  const handleTouchStart = (userId) => {
-    const timer = setTimeout(() => setQuickActionUser(userId), 600);
-    setLongPressTimer(timer);
-  };
-
-  const handleTouchEnd = () => {
-    if (longPressTimer) clearTimeout(longPressTimer);
-  };
 
   if (isUsersLoading) return <SidebarSkeleton />;
 
@@ -123,7 +202,7 @@ const Sidebar = () => {
 
         {/* Search Bar */}
         <div className="relative block md:hidden lg:block">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-base-content/40" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-base-content/40 pointer-events-none" />
           <input
             type="text"
             value={searchQuery}
@@ -135,6 +214,7 @@ const Sidebar = () => {
             <button
               onClick={() => setSearchQuery("")}
               className="absolute right-2 top-1/2 -translate-y-1/2 btn btn-ghost btn-xs btn-circle"
+              aria-label="Clear search"
             >
               <X className="size-3" />
             </button>
@@ -148,9 +228,7 @@ const Sidebar = () => {
               key={f.key}
               onClick={() => setActiveFilter(f.key)}
               className={`btn btn-xs rounded-full whitespace-nowrap flex-shrink-0 transition-all ${
-                activeFilter === f.key
-                  ? "btn-primary"
-                  : "btn-ghost hover:bg-base-200"
+                activeFilter === f.key ? "btn-primary" : "btn-ghost hover:bg-base-200"
               }`}
             >
               {f.label}
@@ -174,31 +252,42 @@ const Sidebar = () => {
         ) : (
           sortedUsers.map((user) => {
             const userId = user._id;
-            const isPinned = pinnedUsers.includes(userId);
-            const isMuted = mutedUsers.includes(userId);
-            const isFavorite = favoriteUsers.includes(userId);
-            const isArchived = archivedUsers.includes(userId);
+            const isPinned  = pinnedUsers.includes(userId);
+            const isMuted   = mutedUsers.includes(userId);
+            const isFavorite= favoriteUsers.includes(userId);
+            const isArchived= archivedUsers.includes(userId);
             const hasUnread = unreadUsers.includes(userId);
-            const online = isOnline(userId);
-            const preview = getLastMessagePreview(user.lastMessage);
+            const online    = isOnline(userId);
+            const preview   = getLastMessagePreview(user.lastMessage);
             const timestamp = formatTime(user.lastMessage?.createdAt);
+            const isMenuOpen = openMenuId === userId;
+            const isSelected = selectedUser?._id === userId;
+
+            const menuActions = {
+              togglePin:     () => togglePinnedUser(userId),
+              toggleMute:    () => toggleMutedUser(userId),
+              toggleFavorite:() => toggleFavoriteUser(userId),
+              toggleArchive: () => toggleArchivedUser(userId),
+              toggleUnread:  () => hasUnread ? clearUnread(userId) : markUnread(userId),
+              viewInfo:      () => setSelectedUser(user),
+              deleteChat:    () => {
+                // Archive acts as soft-delete; extend if needed
+                toggleArchivedUser(userId);
+                if (isSelected) setSelectedUser(null);
+              },
+            };
 
             return (
-              <div
-                key={userId}
-                className="relative group"
-                ref={quickActionUser === userId ? menuRef : null}
-                onTouchStart={() => handleTouchStart(userId)}
-                onTouchEnd={handleTouchEnd}
-              >
+              <div key={userId} className="relative group">
+                {/* Main chat row button */}
                 <button
-                  onClick={() => {
-                    setSelectedUser(user);
-                    setQuickActionUser(null);
-                  }}
-                  className={`w-full p-3 flex items-center gap-3 hover:bg-base-200 transition-colors text-left
-                    ${selectedUser?._id === userId ? "bg-base-200" : ""}
+                  onClick={() => { setSelectedUser(user); setOpenMenuId(null); }}
+                  className={`w-full flex items-center gap-3 px-3 py-3 text-left
+                    transition-colors duration-100
+                    hover:bg-base-200 active:bg-base-300
+                    ${isSelected ? "bg-base-200" : ""}
                   `}
+                  aria-label={`Open chat with ${user.fullName}`}
                 >
                   {/* Avatar */}
                   <div className="relative flex-shrink-0">
@@ -206,113 +295,105 @@ const Sidebar = () => {
                       src={user.profilePic || "/avatar.png"}
                       alt={user.fullName}
                       className="size-12 rounded-full object-cover"
+                      loading="lazy"
                     />
                     {online && (
                       <span className="absolute bottom-0 right-0 size-3 bg-success rounded-full ring-2 ring-base-100" />
                     )}
                   </div>
 
-                  {/* User Info — shown on mobile and lg+ */}
+                  {/* Text info */}
                   <div className="flex-1 min-w-0 block md:hidden lg:block">
-                    <div className="flex items-center justify-between gap-1">
+                    {/* Row 1: Name + indicators + timestamp */}
+                    <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-1 min-w-0">
-                        <span className={`font-medium truncate text-sm ${hasUnread ? "text-base-content" : "text-base-content/90"}`}>
+                        <span className={`text-sm font-medium truncate leading-snug
+                          ${hasUnread ? "text-base-content" : "text-base-content/90"}`}
+                        >
                           {user.fullName}
                         </span>
                         {isFavorite && <Star className="size-3 text-yellow-500 flex-shrink-0" fill="currentColor" />}
-                        {isPinned && <Pin className="size-3 text-base-content/50 flex-shrink-0" />}
-                        {isMuted && <BellOff className="size-3 text-base-content/40 flex-shrink-0" />}
+                        {isPinned   && <Pin  className="size-3 text-base-content/40 flex-shrink-0" />}
+                        {isMuted    && <BellOff className="size-3 text-base-content/30 flex-shrink-0" />}
                       </div>
-                      <div className="flex items-center gap-1 flex-shrink-0">
-                        {timestamp && <span className="text-xs text-base-content/40">{timestamp}</span>}
-                        {hasUnread && (
-                          <span className="size-2 rounded-full bg-primary flex-shrink-0" />
-                        )}
-                      </div>
+                      {/* Timestamp — hidden when menu button is visible (group-hover on desktop) */}
+                      <span className={`text-[11px] text-base-content/40 flex-shrink-0 transition-opacity
+                        ${isMenuOpen ? "opacity-0" : "opacity-100"}
+                        group-hover:opacity-0 group-hover:pointer-events-none`}
+                      >
+                        {timestamp}
+                      </span>
                     </div>
-                    <div className="flex items-center justify-between mt-0.5">
-                      <p className={`text-xs truncate ${hasUnread ? "text-base-content/70 font-medium" : "text-base-content/50"}`}>
+                    {/* Row 2: Last message preview + unread dot */}
+                    <div className="flex items-center justify-between mt-0.5 gap-2">
+                      <p className={`text-xs truncate leading-snug
+                        ${hasUnread ? "text-base-content/70 font-medium" : "text-base-content/45"}`}
+                      >
                         {preview}
                       </p>
-                      {user.lastMessage?.senderId !== userId && user.lastMessage && (
-                        <CheckCheck className="size-3 text-primary flex-shrink-0 ml-1" />
+                      {hasUnread && (
+                        <span className="size-2 rounded-full bg-primary flex-shrink-0" />
                       )}
                     </div>
                   </div>
                 </button>
 
-                {/* Desktop Hover Quick Actions */}
-                <div className="absolute right-2 top-1/2 -translate-y-1/2 hidden group-hover:flex md:hidden lg:flex items-center gap-0.5 bg-base-100 shadow-md rounded-xl p-1 border border-base-300 z-10">
+                {/* ⋮ Three-dot button */}
+                {/* Desktop: show on row hover or when this menu is open
+                    Mobile: always visible */}
+                <div
+                  className={`absolute right-2 top-1/2 -translate-y-1/2
+                    block md:hidden lg:block
+                    md:opacity-100
+                    transition-opacity duration-100
+                    lg:opacity-0 lg:group-hover:opacity-100
+                    ${isMenuOpen ? "lg:opacity-100" : ""}
+                  `}
+                >
                   <button
-                    onClick={(e) => { e.stopPropagation(); togglePinnedUser(userId); }}
-                    className="btn btn-ghost btn-xs btn-circle tooltip tooltip-top"
-                    data-tip={isPinned ? "Unpin" : "Pin"}
-                    title={isPinned ? "Unpin" : "Pin"}
+                    ref={(el) => { menuButtonRefs.current[userId] = el; }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setOpenMenuId(isMenuOpen ? null : userId);
+                    }}
+                    aria-haspopup="true"
+                    aria-expanded={isMenuOpen}
+                    aria-label="More options"
+                    className={`btn btn-ghost btn-xs btn-circle
+                      transition-colors duration-100
+                      ${isMenuOpen ? "bg-base-300 text-base-content" : "text-base-content/50 hover:text-base-content hover:bg-base-200"}`}
                   >
-                    <Pin className={`size-3.5 ${isPinned ? "text-primary" : ""}`} />
+                    <MoreVertical className="size-4" />
                   </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); toggleMutedUser(userId); }}
-                    className="btn btn-ghost btn-xs btn-circle"
-                    title={isMuted ? "Unmute" : "Mute"}
-                  >
-                    <BellOff className={`size-3.5 ${isMuted ? "text-warning" : ""}`} />
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); toggleFavoriteUser(userId); }}
-                    className="btn btn-ghost btn-xs btn-circle"
-                    title={isFavorite ? "Unfavorite" : "Favorite"}
-                  >
-                    <Star className={`size-3.5 ${isFavorite ? "text-yellow-500" : ""}`} fill={isFavorite ? "currentColor" : "none"} />
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); toggleArchivedUser(userId); }}
-                    className="btn btn-ghost btn-xs btn-circle"
-                    title={isArchived ? "Unarchive" : "Archive"}
-                  >
-                    <Archive className={`size-3.5 ${isArchived ? "text-info" : ""}`} />
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); markUnread(userId); }}
-                    className="btn btn-ghost btn-xs btn-circle"
-                    title="Mark Unread"
-                  >
-                    <MailOpen className="size-3.5" />
-                  </button>
-                </div>
 
-                {/* Mobile Long-press Quick Action Sheet */}
-                {quickActionUser === userId && (
-                  <div
-                    ref={menuRef}
-                    className="absolute left-0 right-0 z-20 bg-base-100 border-t border-base-300 shadow-lg p-2 flex flex-wrap gap-2 md:hidden"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {[
-                      { label: isPinned ? "Unpin" : "Pin", icon: <Pin className="size-4" />, action: () => togglePinnedUser(userId) },
-                      { label: isMuted ? "Unmute" : "Mute", icon: <BellOff className="size-4" />, action: () => toggleMutedUser(userId) },
-                      { label: isFavorite ? "Unfavorite" : "Favorite", icon: <Star className="size-4" />, action: () => toggleFavoriteUser(userId) },
-                      { label: isArchived ? "Unarchive" : "Archive", icon: <Archive className="size-4" />, action: () => toggleArchivedUser(userId) },
-                      { label: "Mark Unread", icon: <MailOpen className="size-4" />, action: () => markUnread(userId) },
-                    ].map((a) => (
-                      <button
-                        key={a.label}
-                        className="btn btn-sm btn-ghost gap-1 flex-1"
-                        onClick={() => { a.action(); setQuickActionUser(null); }}
-                      >
-                        {a.icon} {a.label}
-                      </button>
-                    ))}
-                    <button className="btn btn-sm btn-ghost w-full" onClick={() => setQuickActionUser(null)}>
-                      <X className="size-4" /> Cancel
-                    </button>
-                  </div>
-                )}
+                  {/* Dropdown Menu */}
+                  {isMenuOpen && (
+                    <OverflowMenu
+                      userId={userId}
+                      isPinned={isPinned}
+                      isMuted={isMuted}
+                      isFavorite={isFavorite}
+                      isArchived={isArchived}
+                      hasUnread={hasUnread}
+                      onClose={() => setOpenMenuId(null)}
+                      actions={menuActions}
+                      anchorRef={{ current: menuButtonRefs.current[userId] }}
+                    />
+                  )}
+                </div>
               </div>
             );
           })
         )}
       </div>
+
+      {/* Smooth open animation keyframe (injected once) */}
+      <style>{`
+        @keyframes menuIn {
+          from { opacity: 0; transform: scale(0.95) translateY(-4px); }
+          to   { opacity: 1; transform: scale(1)    translateY(0);    }
+        }
+      `}</style>
     </aside>
   );
 };
