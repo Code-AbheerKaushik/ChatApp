@@ -1,48 +1,180 @@
-import { ArrowLeft, X } from "lucide-react";
+import { useState, useRef } from "react";
+import { ArrowLeft, Phone, Video, Search, MoreVertical, X, BellOff, Star, Archive, Trash2, Pin } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
 import { useChatStore } from "../store/useChatStore";
 
 const ChatHeader = () => {
-  const { selectedUser, setSelectedUser } = useChatStore();
+  const { selectedUser, setSelectedUser, typingUsers, conversationSearchQuery, setConversationSearch, toggleConversationSearch, conversationSearchOpen } = useChatStore();
   const { onlineUsers } = useAuthStore();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [callModal, setCallModal] = useState(null); // "voice" | "video" | null
+  const menuRef = useRef(null);
+
+  const isOnline = onlineUsers.includes(String(selectedUser?._id));
+  const isTyping = typingUsers[selectedUser?._id];
+
+  const statusText = isTyping
+    ? "typing..."
+    : isOnline
+    ? "Online"
+    : "Offline";
 
   return (
-    <div className="p-2.5 border-b border-base-300">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          {/* Back button on mobile */}
+    <>
+      <div className="flex items-center justify-between p-3 border-b border-base-300 bg-base-100 gap-2 min-h-[4rem]">
+        {/* Left: Back + Avatar + Info */}
+        <div className="flex items-center gap-2 min-w-0">
+          {/* Mobile back button */}
           <button
             onClick={() => setSelectedUser(null)}
-            className="md:hidden btn btn-ghost btn-sm btn-circle"
-            aria-label="Back to contacts list"
+            className="md:hidden btn btn-ghost btn-sm btn-circle flex-shrink-0"
+            aria-label="Back"
           >
-            <ArrowLeft className="w-5 h-5 text-base-content" />
+            <ArrowLeft className="size-5" />
           </button>
 
           {/* Avatar */}
-          <div className="avatar">
-            <div className="size-10 rounded-full relative">
-              <img src={selectedUser.profilePic || "/avatar.png"} alt={selectedUser.fullName} />
-            </div>
+          <div className="relative flex-shrink-0">
+            <img
+              src={selectedUser?.profilePic || "/avatar.png"}
+              alt={selectedUser?.fullName}
+              className="size-10 rounded-full object-cover"
+            />
+            {isOnline && (
+              <span className="absolute bottom-0 right-0 size-2.5 bg-success rounded-full ring-2 ring-base-100" />
+            )}
           </div>
 
-          {/* User info */}
-          <div>
-            <h3 className="font-medium text-sm sm:text-base truncate max-w-[120px] xs:max-w-[180px] sm:max-w-none">
-              {selectedUser.fullName}
-            </h3>
-            <p className="text-xs text-base-content/70">
-              {onlineUsers.includes(selectedUser._id) ? "Online" : "Offline"}
+          {/* Name + Status */}
+          <div className="min-w-0">
+            <h3 className="font-semibold text-sm truncate">{selectedUser?.fullName}</h3>
+            <p className={`text-xs truncate transition-colors ${isTyping ? "text-primary" : isOnline ? "text-success" : "text-base-content/50"}`}>
+              {statusText}
             </p>
           </div>
         </div>
 
-        {/* Close button (desktop only) */}
-        <button onClick={() => setSelectedUser(null)} className="hidden md:block">
-          <X />
-        </button>
+        {/* Right: Action buttons */}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {/* Conversation Search toggle */}
+          <button
+            onClick={toggleConversationSearch}
+            className={`btn btn-ghost btn-sm btn-circle ${conversationSearchOpen ? "btn-active" : ""}`}
+            title="Search in conversation"
+          >
+            <Search className="size-4" />
+          </button>
+
+          {/* Voice Call */}
+          <button
+            onClick={() => setCallModal("voice")}
+            className="btn btn-ghost btn-sm btn-circle hidden sm:flex"
+            title="Voice call"
+          >
+            <Phone className="size-4" />
+          </button>
+
+          {/* Video Call */}
+          <button
+            onClick={() => setCallModal("video")}
+            className="btn btn-ghost btn-sm btn-circle hidden sm:flex"
+            title="Video call"
+          >
+            <Video className="size-4" />
+          </button>
+
+          {/* More Options */}
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={() => setMenuOpen(!menuOpen)}
+              className="btn btn-ghost btn-sm btn-circle"
+              title="More options"
+            >
+              <MoreVertical className="size-4" />
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-full mt-1 bg-base-100 shadow-lg border border-base-300 rounded-xl w-44 z-30 overflow-hidden">
+                {[
+                  { icon: <Phone className="size-4" />, label: "Voice Call", action: () => { setCallModal("voice"); setMenuOpen(false); } },
+                  { icon: <Video className="size-4" />, label: "Video Call", action: () => { setCallModal("video"); setMenuOpen(false); } },
+                  { icon: <BellOff className="size-4" />, label: "Mute", action: () => setMenuOpen(false) },
+                  { icon: <Search className="size-4" />, label: "Search Chat", action: () => { toggleConversationSearch(); setMenuOpen(false); } },
+                  { icon: <X className="size-4 text-error" />, label: "Close Chat", action: () => { setSelectedUser(null); setMenuOpen(false); } },
+                ].map((item) => (
+                  <button
+                    key={item.label}
+                    onClick={item.action}
+                    className="flex items-center gap-3 w-full px-4 py-2.5 text-sm hover:bg-base-200 transition-colors"
+                  >
+                    {item.icon}
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Desktop close */}
+          <button
+            onClick={() => setSelectedUser(null)}
+            className="hidden md:flex btn btn-ghost btn-sm btn-circle"
+            title="Close"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
       </div>
-    </div>
+
+      {/* Conversation Search Bar */}
+      {conversationSearchOpen && (
+        <div className="px-3 py-2 border-b border-base-300 bg-base-100 flex items-center gap-2">
+          <Search className="size-4 text-base-content/40 flex-shrink-0" />
+          <input
+            type="text"
+            value={conversationSearchQuery}
+            onChange={(e) => setConversationSearch(e.target.value)}
+            placeholder="Search in conversation..."
+            className="flex-1 bg-transparent text-sm outline-none"
+            autoFocus
+          />
+          {conversationSearchQuery && (
+            <button onClick={() => setConversationSearch("")} className="btn btn-ghost btn-xs btn-circle">
+              <X className="size-3" />
+            </button>
+          )}
+          <button onClick={toggleConversationSearch} className="btn btn-ghost btn-xs btn-circle">
+            <X className="size-3" />
+          </button>
+        </div>
+      )}
+
+      {/* Call Modal (Simulated) */}
+      {callModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-base-100 rounded-2xl p-8 flex flex-col items-center gap-5 shadow-2xl w-72">
+            <img
+              src={selectedUser?.profilePic || "/avatar.png"}
+              alt={selectedUser?.fullName}
+              className="size-24 rounded-full object-cover ring-4 ring-primary/30 animate-pulse"
+            />
+            <div className="text-center">
+              <h3 className="font-bold text-lg">{selectedUser?.fullName}</h3>
+              <p className="text-sm text-base-content/60 mt-1">
+                {callModal === "voice" ? "📞 Voice Calling..." : "📹 Video Calling..."}
+              </p>
+            </div>
+            <button
+              onClick={() => setCallModal(null)}
+              className="btn btn-error btn-circle btn-lg"
+              title="End Call"
+            >
+              <Phone className="size-6 rotate-[135deg]" />
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 };
+
 export default ChatHeader;
