@@ -1,22 +1,52 @@
 import { useEffect, useState } from "react";
 import { useProfileStore } from "../../store/useProfileStore";
-import { Image as ImageIcon, Video, FileText, Link, Mic, Maximize2, FolderOpen, Loader2, Download } from "lucide-react";
+import { axiosInstance } from "../../lib/axios";
+import { Image as ImageIcon, Video, FileText, Link, Mic, Maximize2, FolderOpen, Loader2, Download, Lock } from "lucide-react";
 
-const MediaSection = () => {
+// Accepts optional `userId` (for other user's profile) and `readOnly` (hides gallery modal button)
+const MediaSection = ({ userId = null, readOnly = false }) => {
   const { sharedMedia, fetchSharedMedia, isLoadingMedia, openModal } = useProfileStore();
   const [activeTab, setActiveTab] = useState("photos");
   const [lightboxImg, setLightboxImg] = useState(null);
 
+  // Local state for public profile media (so it doesn't clobber own sharedMedia)
+  const [publicMedia, setPublicMedia] = useState({ items: [], total: 0, counts: {} });
+  const [isLoadingPublic, setIsLoadingPublic] = useState(false);
+
+  const isPublicMode = !!userId;
+
   useEffect(() => {
-    fetchSharedMedia(activeTab, 1);
+    if (isPublicMode) {
+      fetchPublicMedia(activeTab);
+    } else {
+      fetchSharedMedia(activeTab, 1);
+    }
   }, []);
+
+  const fetchPublicMedia = async (type) => {
+    setIsLoadingPublic(true);
+    try {
+      const res = await axiosInstance.get(`/auth/shared-media?type=${type}&page=1&limit=12&userId=${userId}`);
+      setPublicMedia(res.data);
+    } catch {
+      setPublicMedia({ items: [], total: 0, counts: {} });
+    } finally {
+      setIsLoadingPublic(false);
+    }
+  };
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
-    fetchSharedMedia(tab, 1);
+    if (isPublicMode) {
+      fetchPublicMedia(tab);
+    } else {
+      fetchSharedMedia(tab, 1);
+    }
   };
 
-  const counts = sharedMedia.counts || {};
+  const activeMedia = isPublicMode ? publicMedia : sharedMedia;
+  const activeLoading = isPublicMode ? isLoadingPublic : isLoadingMedia;
+  const counts = activeMedia.counts || {};
 
   const tabs = [
     { key: "photos", label: "Photos", icon: ImageIcon, count: counts.photos || 0 },
@@ -49,13 +79,15 @@ const MediaSection = () => {
               <p className="text-xs text-base-content/60">Photos, documents, clips, and web links</p>
             </div>
           </div>
-          <button
-            onClick={() => openModal("mediaGallery")}
-            className="btn btn-xs btn-ghost text-primary gap-1"
-          >
-            <Maximize2 className="w-3 h-3" />
-            Open Gallery
-          </button>
+          {!readOnly && (
+            <button
+              onClick={() => openModal("mediaGallery")}
+              className="btn btn-xs btn-ghost text-primary gap-1"
+            >
+              <Maximize2 className="w-3 h-3" />
+              Open Gallery
+            </button>
+          )}
         </div>
 
         {/* Category Pills with Counts */}
@@ -76,17 +108,17 @@ const MediaSection = () => {
 
         {/* Content Preview */}
         <div className="pt-1">
-          {isLoadingMedia ? (
+          {activeLoading ? (
             <div className="flex justify-center py-6">
               <Loader2 className="w-5 h-5 animate-spin text-primary" />
             </div>
-          ) : sharedMedia.items.length === 0 ? (
+          ) : activeMedia.items.length === 0 ? (
             <div className="p-4 rounded-xl bg-base-200/40 border border-base-300/60 text-center space-y-2">
               <p className="text-xs font-medium text-base-content/60">No {activeTab} shared yet.</p>
             </div>
           ) : activeTab === "photos" ? (
             <div className="grid grid-cols-4 gap-2">
-              {sharedMedia.items.slice(0, 4).map((item, i) =>
+              {activeMedia.items.slice(0, 8).map((item, i) =>
                 item.image ? (
                   <div
                     key={i}
@@ -108,7 +140,7 @@ const MediaSection = () => {
             </div>
           ) : activeTab === "links" ? (
             <div className="space-y-2 max-h-36 overflow-y-auto messages-scrollbar">
-              {sharedMedia.items.slice(0, 4).map((item, i) => {
+              {activeMedia.items.slice(0, 4).map((item, i) => {
                 const url = item.text?.match(/https?:\/\/[^\s]+/)?.[0];
                 return url ? (
                   <a key={i} href={url} target="_blank" rel="noopener noreferrer"
@@ -121,7 +153,7 @@ const MediaSection = () => {
             </div>
           ) : (
             <div className="space-y-2 max-h-36 overflow-y-auto messages-scrollbar">
-              {sharedMedia.items.slice(0, 4).map((item, i) =>
+              {activeMedia.items.slice(0, 4).map((item, i) =>
                 item.file ? (
                   <a key={i} href={item.file} download target="_blank" rel="noopener noreferrer"
                     className="flex items-center justify-between p-2.5 bg-base-200/60 rounded-xl border border-base-300/60 hover:bg-base-200 transition-colors text-xs">
@@ -136,7 +168,7 @@ const MediaSection = () => {
             </div>
           )}
 
-          {sharedMedia.items.length > 0 && (
+          {activeMedia.items.length > 0 && !readOnly && (
             <div className="pt-2 text-center">
               <button
                 onClick={() => openModal("mediaGallery")}

@@ -4,6 +4,7 @@ import Session from "../models/session.model.js";
 import Message from "../models/message.model.js";
 import Otp from "../models/otp.model.js";
 import { sendSMS } from "../lib/sms.service.js";
+import { io } from "../lib/socket.js";
 import bcrypt from "bcryptjs";
 import cloudinary from "../lib/cloudinary.js";
 import speakeasy from "speakeasy";
@@ -308,6 +309,18 @@ export const updateProfile = async (req, res) => {
     ).select("-password -twoFactor.secret -twoFactor.recoveryKeys");
 
     if (!updatedUser) return res.status(404).json({ message: "User not found" });
+
+    // Broadcast real-time profile update to all connected socket clients
+    io.emit("userProfileUpdated", {
+      userId: updatedUser._id,
+      updatedUser: {
+        _id: updatedUser._id,
+        fullName: updatedUser.fullName,
+        profilePic: updatedUser.profilePic,
+        username: updatedUser.username,
+        profile: updatedUser.profile,
+      },
+    });
 
     res.status(200).json(updatedUser);
   } catch (error) {
@@ -687,16 +700,39 @@ export const exportChatData = async (req, res) => {
 
 export const getSharedMedia = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const requesterId = req.user._id;
+    // Support optional userId for public profile media viewing
+    const targetUserId = req.query.userId ? req.query.userId : requesterId;
     const { type, page = 1, limit = 20 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    let filter = {
-      $or: [{ senderId: userId }, { receiverId: userId }],
-    };
+    // If requesting another user's media, verify they have a conversation (security gate)
+    if (String(targetUserId) !== String(requesterId)) {
+      const hasConversation = await Message.exists({
+        $or: [
+          { senderId: requesterId, receiverId: targetUserId },
+          { senderId: targetUserId, receiverId: requesterId },
+        ],
+      });
+      if (!hasConversation) {
+        return res.status(200).json({ items: [], total: 0, page: 1, totalPages: 0, counts: { photos: 0, videos: 0, documents: 0, voiceNotes: 0, links: 0 } });
+      }
+    }
+
+    // Build base filter — shared between the two users or all own messages
+    const baseFilter = String(targetUserId) === String(requesterId)
+      ? { $or: [{ senderId: targetUserId }, { receiverId: targetUserId }] }
+      : {
+          $or: [
+            { senderId: requesterId, receiverId: targetUserId },
+            { senderId: targetUserId, receiverId: requesterId },
+          ],
+        };
+
+    let filter = { ...baseFilter };
 
     if (type === "photos") {
-      filter = { ...filter, $or: [{ senderId: userId }, { receiverId: userId }], image: { $ne: null, $ne: "" } };
+      filter = { ...filter, image: { $ne: null, $ne: "" } };
     } else if (type === "videos") {
       filter = { ...filter, fileType: "video" };
     } else if (type === "documents") {
@@ -704,7 +740,6 @@ export const getSharedMedia = async (req, res) => {
     } else if (type === "voiceNotes") {
       filter = { ...filter, fileType: "audio" };
     } else if (type === "links") {
-      // Text messages with URLs
       filter = { ...filter, text: { $regex: /https?:\/\//i } };
     }
 
@@ -718,13 +753,13 @@ export const getSharedMedia = async (req, res) => {
       Message.countDocuments(filter),
     ]);
 
-    // Count per type
+    // Count per type using base filter
     const [photosCount, videosCount, docsCount, voiceCount, linksCount] = await Promise.all([
-      Message.countDocuments({ $or: [{ senderId: userId }, { receiverId: userId }], image: { $ne: null, $ne: "" } }),
-      Message.countDocuments({ $or: [{ senderId: userId }, { receiverId: userId }], fileType: "video" }),
-      Message.countDocuments({ $or: [{ senderId: userId }, { receiverId: userId }], fileType: { $in: ["document", "pdf"] } }),
-      Message.countDocuments({ $or: [{ senderId: userId }, { receiverId: userId }], fileType: "audio" }),
-      Message.countDocuments({ $or: [{ senderId: userId }, { receiverId: userId }], text: { $regex: /https?:\/\//i } }),
+      Message.countDocuments({ ...baseFilter, image: { $ne: null, $ne: "" } }),
+      Message.countDocuments({ ...baseFilter, fileType: "video" }),
+      Message.countDocuments({ ...baseFilter, fileType: { $in: ["document", "pdf"] } }),
+      Message.countDocuments({ ...baseFilter, fileType: "audio" }),
+      Message.countDocuments({ ...baseFilter, text: { $regex: /https?:\/\//i } }),
     ]);
 
     res.status(200).json({
@@ -772,6 +807,95 @@ export const deleteAccount = async (req, res) => {
     res.status(200).json({ message: "Account deleted successfully" });
   } catch (error) {
     console.error("Error in deleteAccount:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Get Public User Profile (Read-Only)
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const getUserProfile = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const viewerId = req.user._id;
+
+    const targetUser = await User.findById(userId)
+      .select("-password -twoFactor.secret -twoFactor.recoveryKeys")
+      .lean();
+
+    if (!targetUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const isOwnProfile = String(userId) === String(viewerId);
+
+    // Check if viewer is blocked by target user or viewer blocked target user
+    const viewerDoc = await User.findById(viewerId).select("blockedUsers").lean();
+    const isViewerBlocked = targetUser.blockedUsers?.some((b) => String(b) === String(viewerId));
+    const isTargetBlockedByViewer = viewerDoc?.blockedUsers?.some((b) => String(b) === String(userId));
+
+    const p = targetUser.privacy || {};
+
+    const publicProfile = {
+      _id: targetUser._id,
+      fullName: targetUser.fullName,
+      username: targetUser.username || targetUser.profile?.username || "",
+      profilePic: targetUser.profilePic,
+      createdAt: targetUser.createdAt,
+      isOwnProfile,
+      isBlocked: isTargetBlockedByViewer,
+      profile: {
+        bio: targetUser.profile?.bio || "Available",
+        statusMessage: targetUser.profile?.statusMessage || "",
+        location: targetUser.profile?.location || "",
+        gender: targetUser.profile?.gender || "",
+        dob: targetUser.profile?.dob || "",
+        work: targetUser.profile?.work || "",
+        education: targetUser.profile?.education || "",
+        interests: targetUser.profile?.interests || [],
+        hobbies: targetUser.profile?.hobbies || [],
+      },
+    };
+
+    // Apply Privacy Settings Server-Side if not own profile
+    if (!isOwnProfile) {
+      if (p.profilePhotoVisibility === "Nobody" || isViewerBlocked) {
+        publicProfile.profilePic = "";
+      }
+
+      if (p.aboutVisibility === "Nobody" || isViewerBlocked) {
+        publicProfile.profile.bio = "";
+        publicProfile.profile.statusMessage = "";
+      }
+
+      if (p.birthdayVisibility === "Nobody" || isViewerBlocked) {
+        publicProfile.profile.dob = "";
+      }
+    }
+
+    // Public Statistics
+    const [messagesSent, mediaShared] = await Promise.all([
+      Message.countDocuments({ senderId: userId }),
+      Message.countDocuments({
+        senderId: userId,
+        $or: [{ image: { $ne: null, $ne: "" } }, { file: { $ne: null, $ne: "" } }],
+      }),
+    ]);
+
+    const accountAgeDays = targetUser.createdAt
+      ? Math.max(1, Math.floor((new Date() - new Date(targetUser.createdAt)) / (1000 * 60 * 60 * 24)))
+      : 1;
+
+    publicProfile.stats = {
+      messagesSent: isOwnProfile ? messagesSent : (p?.aboutVisibility === "Nobody" ? "—" : messagesSent),
+      mediaShared: isOwnProfile ? mediaShared : (p?.aboutVisibility === "Nobody" ? "—" : mediaShared),
+      accountAgeDays,
+    };
+
+    res.status(200).json(publicProfile);
+  } catch (error) {
+    console.error("Error in getUserProfile:", error);
     res.status(500).json({ message: "Internal Server Error" });
   }
 };

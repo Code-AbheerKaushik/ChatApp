@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from "react";
-import { ArrowLeft, Phone, Video, Search, MoreVertical, X, BellOff, Star, Archive, Trash2, Pin } from "lucide-react";
+import { ArrowLeft, Phone, Video, Search, MoreVertical, X, BellOff, Star, Archive, Trash2, Pin, User } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
 import { useChatStore } from "../store/useChatStore";
+import { useNavigate } from "react-router-dom";
 
 const ChatHeader = () => {
   const { selectedUser, setSelectedUser, typingUsers, conversationSearchQuery, setConversationSearch, toggleConversationSearch, conversationSearchOpen } = useChatStore();
@@ -9,6 +10,7 @@ const ChatHeader = () => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [callModal, setCallModal] = useState(null); // "voice" | "video" | null
   const menuRef = useRef(null);
+  const navigate = useNavigate();
 
   const isOnline = onlineUsers.includes(String(selectedUser?._id));
   const isTyping = typingUsers[selectedUser?._id];
@@ -30,6 +32,10 @@ const ChatHeader = () => {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  const openUserProfile = () => {
+    if (selectedUser?._id) navigate(`/user/${selectedUser._id}`);
+  };
+
   return (
     <>
       <div className="flex items-center justify-between px-3 py-2.5 sm:px-4 sm:py-3 border-b border-base-300 bg-base-100 gap-2 min-h-[3.75rem] safe-top flex-shrink-0">
@@ -44,25 +50,32 @@ const ChatHeader = () => {
             <ArrowLeft className="size-5" />
           </button>
 
-          {/* Avatar */}
-          <div className="relative flex-shrink-0">
-            <img
-              src={selectedUser?.profilePic || "/avatar.png"}
-              alt={selectedUser?.fullName}
-              className="size-9 sm:size-10 rounded-full object-cover"
-            />
-            {isOnline && (
-              <span className="absolute bottom-0 right-0 size-2.5 bg-success rounded-full ring-2 ring-base-100" />
-            )}
-          </div>
+          {/* Avatar + Name - clickable to open profile */}
+          <button
+            onClick={openUserProfile}
+            className="flex items-center gap-2 min-w-0 flex-1 text-left hover:opacity-80 transition-opacity group"
+            title="View profile"
+          >
+            {/* Avatar */}
+            <div className="relative flex-shrink-0">
+              <img
+                src={selectedUser?.profilePic || "/avatar.png"}
+                alt={selectedUser?.fullName}
+                className="size-9 sm:size-10 rounded-full object-cover"
+              />
+              {isOnline && (
+                <span className="absolute bottom-0 right-0 size-2.5 bg-success rounded-full ring-2 ring-base-100" />
+              )}
+            </div>
 
-          {/* Name + Status */}
-          <div className="min-w-0 flex-1">
-            <h3 className="font-semibold text-sm truncate leading-snug">{selectedUser?.fullName}</h3>
-            <p className={`text-xs truncate leading-none transition-colors ${isTyping ? "text-primary font-medium animate-pulse" : isOnline ? "text-success" : "text-base-content/50"}`}>
-              {statusText}
-            </p>
-          </div>
+            {/* Name + Status */}
+            <div className="min-w-0 flex-1">
+              <h3 className="font-semibold text-sm truncate leading-snug group-hover:text-primary transition-colors">{selectedUser?.fullName}</h3>
+              <p className={`text-xs truncate leading-none transition-colors ${isTyping ? "text-primary font-medium animate-pulse" : isOnline ? "text-success" : "text-base-content/50"}`}>
+                {statusText}
+              </p>
+            </div>
+          </button>
         </div>
 
         {/* Right: Action buttons */}
@@ -107,6 +120,7 @@ const ChatHeader = () => {
             {menuOpen && (
               <div className="absolute right-0 top-full mt-1 bg-base-100 shadow-xl border border-base-300 rounded-xl w-48 z-50 overflow-hidden py-1">
                 {[
+                  { icon: <User className="size-4" />, label: "View Profile", action: () => { openUserProfile(); setMenuOpen(false); } },
                   { icon: <Search className="size-4" />, label: "Search Chat", action: () => { toggleConversationSearch(); setMenuOpen(false); } },
                   { icon: <Phone className="size-4" />, label: "Voice Call", action: () => { setCallModal("voice"); setMenuOpen(false); } },
                   { icon: <Video className="size-4" />, label: "Video Call", action: () => { setCallModal("video"); setMenuOpen(false); } },

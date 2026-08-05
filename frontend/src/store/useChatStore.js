@@ -239,6 +239,33 @@ export const useChatStore = create((set, get) => ({
         return { typingUsers: next };
       });
     });
+
+    // Update contact list when a user updates their profile
+    socket.on("userProfileUpdated", ({ userId, updatedUser }) => {
+      set((state) => ({
+        users: state.users.map((u) =>
+          String(u._id) === String(userId)
+            ? {
+                ...u,
+                fullName: updatedUser.fullName ?? u.fullName,
+                profilePic: updatedUser.profilePic ?? u.profilePic,
+                username: updatedUser.username ?? u.username,
+                profile: { ...u.profile, ...updatedUser.profile },
+              }
+            : u
+        ),
+        // Update selectedUser if they changed their profile
+        selectedUser:
+          state.selectedUser && String(state.selectedUser._id) === String(userId)
+            ? {
+                ...state.selectedUser,
+                fullName: updatedUser.fullName ?? state.selectedUser.fullName,
+                profilePic: updatedUser.profilePic ?? state.selectedUser.profilePic,
+                username: updatedUser.username ?? state.selectedUser.username,
+              }
+            : state.selectedUser,
+      }));
+    });
   },
 
   unsubscribeFromMessages: () => {

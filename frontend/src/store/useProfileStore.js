@@ -21,6 +21,30 @@ const saveLocal = (key, value) => {
 };
 
 export const useProfileStore = create((set, get) => ({
+  // ─── Viewed User Public Profile (Read-Only)
+  viewedUser: null,
+  isLoadingViewedUser: false,
+  fullscreenDpUrl: null, // Stores image URL when viewing DP full-screen
+
+  openFullscreenDp: (url) => set({ fullscreenDpUrl: url }),
+  closeFullscreenDp: () => set({ fullscreenDpUrl: null }),
+
+  fetchPublicProfile: async (userId) => {
+    set({ isLoadingViewedUser: true });
+    try {
+      const res = await axiosInstance.get(`/auth/user/${userId}`);
+      set({ viewedUser: res.data });
+      return res.data;
+    } catch (error) {
+      console.error("Failed to fetch public profile:", error);
+      toast.error(error.response?.data?.message || "User profile not found.");
+      set({ viewedUser: null });
+      return null;
+    } finally {
+      set({ isLoadingViewedUser: false });
+    }
+  },
+
   // ─── Extra Profile
   extraProfile: {},
   updateExtraProfile: async (updates) => {

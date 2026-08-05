@@ -106,6 +106,20 @@ const App = () => {
             )
           }
         />
+        <Route
+          path="/user/:userId"
+          element={
+            authUser ? (
+              needsOnboarding ? (
+                <Navigate to="/onboarding" replace />
+              ) : (
+                <ProfilePage />
+              )
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
       </Routes>
 
       <Toaster />

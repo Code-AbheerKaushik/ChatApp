@@ -141,6 +141,23 @@ export const useAuthStore = create((set, get) => ({
     socket.on("getOnlineUsers", (userIds) => {
       set({ onlineUsers: userIds });
     });
+
+    // Real-time profile update: update contacts in chat lists if their profile changes
+    socket.on("userProfileUpdated", ({ userId, updatedUser }) => {
+      // Update authUser if it's our own profile updated from another device
+      const { authUser } = get();
+      if (authUser && String(authUser._id) === String(userId)) {
+        set((state) => ({
+          authUser: {
+            ...state.authUser,
+            fullName: updatedUser.fullName ?? state.authUser.fullName,
+            profilePic: updatedUser.profilePic ?? state.authUser.profilePic,
+            username: updatedUser.username ?? state.authUser.username,
+            profile: { ...state.authUser.profile, ...updatedUser.profile },
+          },
+        }));
+      }
+    });
   },
   disconnectSocket: () => {
     if (get().socket?.connected) get().socket.disconnect();

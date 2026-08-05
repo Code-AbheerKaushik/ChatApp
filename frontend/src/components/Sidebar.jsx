@@ -1,10 +1,11 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useChatStore } from "../store/useChatStore";
 import { useAuthStore } from "../store/useAuthStore";
+import { useNavigate } from "react-router-dom";
 import SidebarSkeleton from "./skeletons/SidebarSkeleton";
 import {
   Users, Search, X, Pin, Archive, BellOff, Star,
-  MailOpen, CheckCheck, MoreVertical, Trash2, Info
+  MailOpen, CheckCheck, MoreVertical, Trash2, Info, User
 } from "lucide-react";
 
 const FILTERS = [
@@ -68,6 +69,11 @@ const OverflowMenu = ({ userId, isPinned, isMuted, isFavorite, isArchived, hasUn
 
   const menuItems = [
     {
+      icon: <User className="size-4 text-primary" />,
+      label: "View Profile",
+      action: actions.viewProfile,
+    },
+    {
       icon: <Pin className={`size-4 ${isPinned ? "text-primary" : ""}`} />,
       label: isPinned ? "Unpin Chat" : "Pin Chat",
       action: actions.togglePin,
@@ -93,11 +99,6 @@ const OverflowMenu = ({ userId, isPinned, isMuted, isFavorite, isArchived, hasUn
       action: actions.toggleArchive,
     },
     { divider: true },
-    {
-      icon: <Info className="size-4 text-base-content/60" />,
-      label: "View Contact Info",
-      action: actions.viewInfo,
-    },
     {
       icon: <Trash2 className="size-4 text-error" />,
       label: "Delete Chat",
@@ -153,6 +154,7 @@ const Sidebar = () => {
   } = useChatStore();
 
   const { onlineUsers } = useAuthStore();
+  const navigate = useNavigate();
   const [openMenuId, setOpenMenuId] = useState(null);
   const menuButtonRefs = useRef({});
 
@@ -264,12 +266,12 @@ const Sidebar = () => {
             const isSelected = selectedUser?._id === userId;
 
             const menuActions = {
+              viewProfile:   () => navigate(`/user/${userId}`),
               togglePin:     () => togglePinnedUser(userId),
               toggleMute:    () => toggleMutedUser(userId),
               toggleFavorite:() => toggleFavoriteUser(userId),
               toggleArchive: () => toggleArchivedUser(userId),
               toggleUnread:  () => hasUnread ? clearUnread(userId) : markUnread(userId),
-              viewInfo:      () => setSelectedUser(user),
               deleteChat:    () => {
                 // Archive acts as soft-delete; extend if needed
                 toggleArchivedUser(userId);

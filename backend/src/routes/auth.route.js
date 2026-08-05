@@ -22,6 +22,7 @@ import {
   sendOtp,
   verifyOtp,
   deleteAccount,
+  getUserProfile,
 } from "../controllers/auth.controller.js";
 import { saveOnboardingStep, checkUsernameAvailability } from "../controllers/onboarding.controller.js";
 import { protectRoute } from "../middleware/auth.middleware.js";
@@ -37,6 +38,7 @@ router.post("/logout", logout);
 router.get("/check", protectRoute, checkAuth);
 
 // ─── Profile
+router.get("/user/:userId", protectRoute, getUserProfile);
 router.put("/update-profile", protectRoute, updateProfile);
 router.put("/onboarding", protectRoute, saveOnboardingStep);
 router.get("/check-username", protectRoute, checkUsernameAvailability);
