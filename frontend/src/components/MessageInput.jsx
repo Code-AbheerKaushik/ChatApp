@@ -143,7 +143,7 @@ const MessageInput = () => {
   };
 
   return (
-    <div className="border-t border-base-300 bg-base-100">
+    <div className="border-t border-base-300 bg-base-100 safe-bottom flex-shrink-0">
       {/* Reply Preview */}
       {replyToMessage && (
         <div className="flex items-center gap-3 px-4 py-2 bg-base-200 border-b border-base-300">
@@ -255,6 +255,7 @@ const MessageInput = () => {
           rows={1}
           value={text}
           onChange={(e) => { setText(e.target.value); handleTyping(); }}
+          onFocus={() => { window.scrollTo(0, 0); document.body.scrollTop = 0; }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendMessage(); }
           }}

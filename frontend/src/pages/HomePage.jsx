@@ -1,6 +1,7 @@
 import { useChatStore } from "../store/useChatStore";
 import { Link } from "react-router-dom";
 import { MessageSquare, Users, Phone, User } from "lucide-react";
+import { useVisualViewport } from "../hooks/useVisualViewport";
 
 import Sidebar from "../components/Sidebar";
 import NoChatSelected from "../components/NoChatSelected";
@@ -8,6 +9,9 @@ import ChatContainer from "../components/ChatContainer";
 
 const HomePage = () => {
   const { selectedUser } = useChatStore();
+  const viewportHeight = useVisualViewport();
+
+  const mobileHeightStyle = viewportHeight ? { height: `${viewportHeight}px` } : { height: "100dvh" };
 
   return (
     <div className="h-screen h-[100dvh] bg-base-200 flex flex-col overflow-hidden w-full relative">
@@ -21,7 +25,10 @@ const HomePage = () => {
           </div>
 
           {/* Chat conversation panel */}
-          <div className={`h-full flex-1 min-w-0 ${!selectedUser ? "hidden md:flex" : "flex flex-col w-full h-full fixed inset-0 z-50 sm:relative sm:inset-auto sm:z-auto bg-base-100"}`}>
+          <div
+            style={selectedUser ? mobileHeightStyle : undefined}
+            className={`h-full flex-1 min-w-0 ${!selectedUser ? "hidden md:flex" : "flex flex-col w-full fixed inset-0 z-50 sm:relative sm:inset-auto sm:z-auto sm:h-full bg-base-100 overflow-hidden"}`}
+          >
             {!selectedUser ? <NoChatSelected /> : <ChatContainer />}
           </div>
         </div>
@@ -29,7 +36,7 @@ const HomePage = () => {
 
       {/* Mobile bottom navigation bar - ONLY visible when no active chat on mobile */}
       {!selectedUser && (
-        <nav className="sm:hidden fixed bottom-0 inset-x-0 bg-base-100 border-t border-base-300 z-40 flex h-14 flex-shrink-0">
+        <nav className="sm:hidden fixed bottom-0 inset-x-0 bg-base-100 border-t border-base-300 z-40 flex h-14 flex-shrink-0 safe-bottom">
           <Link
             to="/"
             className="flex-1 flex flex-col items-center justify-center py-1 gap-0.5 text-primary"
