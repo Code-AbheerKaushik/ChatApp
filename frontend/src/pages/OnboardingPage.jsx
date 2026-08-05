@@ -78,13 +78,13 @@ const OnboardingPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-base-200/50 flex flex-col justify-between items-center relative overflow-hidden py-6 px-4">
+    <div className="min-h-screen min-h-[100dvh] bg-base-200/50 flex flex-col justify-between items-center relative overflow-y-auto py-4 sm:py-8 px-3 sm:px-6 safe-top safe-bottom scrollbar-gutter-stable">
       {/* Background Subtle Elements */}
       <div className="absolute -top-40 -left-40 w-96 h-96 bg-primary/10 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-secondary/10 rounded-full blur-3xl pointer-events-none" />
 
       {/* Top Header & Progress */}
-      <div className="w-full max-w-lg space-y-4 z-10">
+      <div className="w-full max-w-lg space-y-3 z-10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             {currentStep > 0 && (
@@ -96,21 +96,28 @@ const OnboardingPage = () => {
                 <ArrowLeft className="w-4 h-4" />
               </button>
             )}
-            <div className="flex items-center gap-2 font-bold text-lg text-base-content">
+            <div className="flex items-center gap-2 font-bold text-base sm:text-lg text-base-content">
               <MessageSquare className="w-5 h-5 text-primary" />
               <span>Chatty Setup</span>
             </div>
           </div>
 
-          {currentStep > 0 && (
-            <div className="text-xs font-semibold px-3 py-1 rounded-full bg-base-300/60 text-base-content/70">
+          {currentStep > 0 ? (
+            <div className="text-xs font-semibold px-2.5 py-1 rounded-full bg-base-300/70 text-base-content/80">
               Step {currentStep} of {TOTAL_STEPS}
             </div>
+          ) : (
+            <button
+              onClick={() => useAuthStore.getState().logout()}
+              className="text-xs font-medium text-primary hover:underline"
+            >
+              Log in with existing account
+            </button>
           )}
         </div>
 
         {/* Progress Bar */}
-        <div className="w-full h-2 bg-base-300 rounded-full overflow-hidden">
+        <div className="w-full h-2 bg-base-300/80 rounded-full overflow-hidden shadow-inner">
           <div
             className="h-full bg-primary transition-all duration-300 ease-out"
             style={{ width: `${progressPercent}%` }}
@@ -119,16 +126,16 @@ const OnboardingPage = () => {
       </div>
 
       {/* Step Container Card */}
-      <div className="w-full max-w-lg my-auto z-10">
-        <div className="bg-base-100/90 backdrop-blur-md border border-base-300/60 shadow-2xl rounded-3xl p-6 sm:p-8 transition-all">
+      <div className="w-full max-w-lg my-auto py-4 z-10">
+        <div className="bg-base-100/95 backdrop-blur-lg border border-base-300/70 shadow-2xl rounded-2xl sm:rounded-3xl p-5 sm:p-8 max-h-[82vh] overflow-y-auto custom-scrollbar">
           {renderStep()}
         </div>
       </div>
 
       {/* Bottom Footer */}
-      <div className="w-full max-w-lg text-center z-10 pt-4 flex items-center justify-center gap-1.5 text-xs text-base-content/40">
-        <ShieldCheck className="w-4 h-4 text-primary" />
-        <span>Your data is stored securely and can be updated anytime in settings</span>
+      <div className="w-full max-w-lg text-center z-10 pt-2 pb-2 flex items-center justify-center gap-1.5 text-[11px] sm:text-xs text-base-content/50">
+        <ShieldCheck className="w-4 h-4 text-primary shrink-0" />
+        <span>Your profile data is encrypted and can be edited anytime in settings</span>
       </div>
     </div>
   );

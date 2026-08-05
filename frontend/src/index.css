@@ -2,21 +2,30 @@
 @tailwind components;
 @tailwind utilities;
 
-html,
-body,
-#root {
+html {
   height: 100%;
-  height: 100dvh;
-  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  scrollbar-gutter: stable;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  min-height: 100%;
+  min-height: 100dvh;
   margin: 0;
   padding: 0;
   touch-action: manipulation;
-  overscroll-behavior: none;
-  -webkit-overscroll-behavior: none;
-  position: fixed;
-  width: 100%;
-  top: 0;
-  left: 0;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  background-color: var(--fallback-b1, oklch(var(--b1)));
+}
+
+#root {
+  min-height: 100%;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Safe area padding utilities */
@@ -27,17 +36,42 @@ body,
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
-/* Custom scrollbar styling for message container */
-.messages-scrollbar::-webkit-scrollbar {
-  width: 6px;
+.scrollbar-gutter-stable {
+  scrollbar-gutter: stable;
 }
-.messages-scrollbar::-webkit-scrollbar-track {
+
+/* Professional Custom Scrollbar Styling (Global & Custom) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
   background: transparent;
 }
-.messages-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(150, 150, 150, 0.3);
+::-webkit-scrollbar-thumb {
+  background: rgba(150, 150, 150, 0.25);
   border-radius: 9999px;
 }
-.messages-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(150, 150, 150, 0.5);
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(150, 150, 150, 0.45);
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(160, 160, 160, 0.3);
+  border-radius: 9999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(160, 160, 160, 0.5);
+}
+
+/* Firefox scrollbar support */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(150, 150, 150, 0.3) transparent;
 }
