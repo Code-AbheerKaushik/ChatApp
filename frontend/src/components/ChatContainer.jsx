@@ -5,7 +5,7 @@ import MessageInput from "./MessageInput";
 import MessageSkeleton from "./skeletons/MessageSkeleton";
 import { useAuthStore } from "../store/useAuthStore";
 import { formatMessageTime } from "../lib/utils";
-import { Reply, Pencil, Trash2, SmilePlus, Pin, Copy, X, ChevronDown, ArrowDown, Clock, AlertCircle, RotateCcw, Check } from "lucide-react";
+import { Reply, Pencil, Trash2, SmilePlus, Pin, Copy, X, ChevronDown, ArrowDown, Clock, AlertCircle, RotateCcw, Check, CheckCheck } from "lucide-react";
 
 const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
 
@@ -110,6 +110,18 @@ const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit
               )}
               {isOwn && isFailed && (
                 <AlertCircle className="size-3 text-error" aria-label="Failed to send" />
+              )}
+              {/* Delivery and Read receipts checkmarks for own messages */}
+              {isOwn && !isSending && !isFailed && (
+                <span className="ml-0.5 flex items-center">
+                  {message.status === "read" ? (
+                    <CheckCheck className="size-3.5 text-blue-400" aria-label="Read" />
+                  ) : message.status === "delivered" ? (
+                    <CheckCheck className="size-3.5 text-primary-content/60" aria-label="Delivered" />
+                  ) : (
+                    <Check className="size-3.5 text-primary-content/60" aria-label="Sent" />
+                  )}
+                </span>
               )}
             </div>
           </div>

@@ -2,6 +2,7 @@ import { Server } from "socket.io";
 import http from "http";
 import express from "express";
 import User from "../models/user.model.js";
+import Message from "../models/message.model.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -20,11 +21,49 @@ export function getReceiverSocketId(userId) {
 // used to store online users
 const userSocketMap = {}; // {userId: socketId}
 
-io.on("connection", (socket) => {
+io.on("connection", async (socket) => {
   console.log("A user connected", socket.id);
 
   const userId = socket.handshake.query.userId;
-  if (userId) userSocketMap[userId] = socket.id;
+  if (userId) {
+    userSocketMap[userId] = socket.id;
+
+    try {
+      // 1. Mark any pending "sent" messages to this user as "delivered"
+      const pendingMessages = await Message.find({
+        receiverId: userId,
+        status: "sent",
+      }).select("_id senderId");
+
+      if (pendingMessages.length > 0) {
+        const messageIds = pendingMessages.map((m) => m._id);
+        await Message.updateMany(
+          { _id: { $in: messageIds } },
+          { $set: { status: "delivered", deliveredAt: new Date() } }
+        );
+
+        // Group by sender and notify online senders
+        const senderGroups = pendingMessages.reduce((acc, m) => {
+          const sId = String(m.senderId);
+          acc[sId] = acc[sId] || [];
+          acc[sId].push(m._id);
+          return acc;
+        }, {});
+
+        for (const [senderId, ids] of Object.entries(senderGroups)) {
+          const senderSocketId = userSocketMap[senderId];
+          if (senderSocketId) {
+            io.to(senderSocketId).emit("messagesDelivered", {
+              receiverId: userId,
+              messageIds: ids,
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Error updating delivery status on connection:", err.message);
+    }
+  }
 
   io.emit("getOnlineUsers", Object.keys(userSocketMap));
 
@@ -73,9 +112,19 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("disconnect", () => {
+  socket.on("disconnect", async () => {
     console.log("A user disconnected", socket.id);
-    delete userSocketMap[userId];
+    if (userId) {
+      delete userSocketMap[userId];
+      const disconnectTime = new Date();
+      try {
+        await User.findByIdAndUpdate(userId, { lastSeen: disconnectTime });
+        // Emit lastSeen presence update to everyone in real-time
+        io.emit("userOffline", { userId, lastSeen: disconnectTime });
+      } catch (err) {
+        console.error("Error saving lastSeen on disconnect:", err.message);
+      }
+    }
     io.emit("getOnlineUsers", Object.keys(userSocketMap));
   });
 });

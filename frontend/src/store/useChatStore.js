@@ -67,6 +67,9 @@ export const useChatStore = create((set, get) => ({
   // --- In-flight reaction locks (prevent rapid duplicate calls) ---
   _reactionInFlight: {}, // { messageId: emoji }
 
+  // --- Unread Counts ---
+  unreadCounts: {}, // { [userId]: count }
+
   setSearchQuery: (q) => set({ searchQuery: q }),
   setActiveFilter: (f) => set({ activeFilter: f }),
   setConversationSearch: (q) => set({ conversationSearchQuery: q }),
@@ -107,11 +110,30 @@ export const useChatStore = create((set, get) => ({
       saveLocal("chatty_unread", next);
       set({ unreadUsers: next });
     }
+    // Increment count
+    set((state) => ({
+      unreadCounts: {
+        ...state.unreadCounts,
+        [userId]: (state.unreadCounts[userId] || 0) + 1,
+      },
+      users: state.users.map(u =>
+        String(u._id) === String(userId) ? { ...u, unreadCount: (u.unreadCount || 0) + 1 } : u
+      ),
+    }));
   },
   clearUnread: (userId) => {
     const next = get().unreadUsers.filter(id => id !== userId);
     saveLocal("chatty_unread", next);
-    set({ unreadUsers: next });
+    set((state) => ({
+      unreadUsers: next,
+      unreadCounts: {
+        ...state.unreadCounts,
+        [userId]: 0,
+      },
+      users: state.users.map(u =>
+        String(u._id) === String(userId) ? { ...u, unreadCount: 0 } : u
+      ),
+    }));
   },
 
   // --- API calls ---
@@ -119,7 +141,11 @@ export const useChatStore = create((set, get) => ({
     set({ isUsersLoading: true });
     try {
       const res = await axiosInstance.get("/messages/users");
-      set({ users: res.data });
+      const counts = {};
+      res.data.forEach((u) => {
+        counts[u._id] = u.unreadCount || 0;
+      });
+      set({ users: res.data, unreadCounts: counts });
     } catch (error) {
       toast.error(error.response?.data?.message || "Failed to load users");
     } finally {
@@ -134,10 +160,27 @@ export const useChatStore = create((set, get) => ({
       set({ messages: res.data });
       // Clear unread when opening a conversation
       get().clearUnread(userId);
+      await get().markMessagesAsRead(userId);
     } catch (error) {
       toast.error(error.response?.data?.message || "Failed to load messages");
     } finally {
       set({ isMessagesLoading: false });
+    }
+  },
+
+  markMessagesAsRead: async (senderId) => {
+    try {
+      await axiosInstance.put(`/messages/read/${senderId}`);
+      set((state) => ({
+        unreadCounts: { ...state.unreadCounts, [senderId]: 0 },
+        unreadUsers: state.unreadUsers.filter(id => id !== senderId),
+        users: state.users.map(u =>
+          String(u._id) === String(senderId) ? { ...u, unreadCount: 0 } : u
+        ),
+      }));
+      saveLocal("chatty_unread", get().unreadUsers);
+    } catch (error) {
+      console.error("Error marking messages as read:", error);
     }
   },
 
@@ -409,8 +452,13 @@ export const useChatStore = create((set, get) => ({
         }
 
         // Brand new incoming message from the other party
+        // If we are currently viewing this conversation, mark it as read immediately
+        if (msgSenderId === selectedUserId) {
+          get().markMessagesAsRead(selectedUserId);
+        }
+
         return {
-          messages: [...msgs, { ...newMessage, status: "sent" }],
+          messages: [...msgs, { ...newMessage, status: msgSenderId === selectedUserId ? "read" : newMessage.status || "sent" }],
           users: state.users.map(u =>
             String(u._id) === selectedUserId ? { ...u, lastMessage: newMessage } : u
           ),
@@ -484,6 +532,38 @@ export const useChatStore = create((set, get) => ({
             : state.selectedUser,
       }));
     });
+
+    // Delivery and Read Receipt Listeners
+    socket.on("messagesDelivered", ({ receiverId, messageIds }) => {
+      set((state) => ({
+        messages: state.messages.map((m) =>
+          messageIds.includes(m._id) && m.status !== "read"
+            ? { ...m, status: "delivered", deliveredAt: new Date() }
+            : m
+        ),
+      }));
+    });
+
+    socket.on("messagesRead", ({ readBy, messageIds }) => {
+      set((state) => ({
+        messages: state.messages.map((m) =>
+          messageIds.includes(m._id) ? { ...m, status: "read", readAt: new Date() } : m
+        ),
+      }));
+    });
+
+    // Real-time Presence Updates
+    socket.on("userOffline", ({ userId, lastSeen }) => {
+      set((state) => ({
+        users: state.users.map((u) =>
+          String(u._id) === String(userId) ? { ...u, lastSeen } : u
+        ),
+        selectedUser:
+          state.selectedUser && String(state.selectedUser._id) === String(userId)
+            ? { ...state.selectedUser, lastSeen }
+            : state.selectedUser,
+      }));
+    });
   },
 
   unsubscribeFromMessages: () => {
@@ -497,6 +577,9 @@ export const useChatStore = create((set, get) => ({
     socket.off("typing");
     socket.off("stopTyping");
     socket.off("userProfileUpdated");
+    socket.off("messagesDelivered");
+    socket.off("messagesRead");
+    socket.off("userOffline");
   },
 
   // Emit typing indicator
@@ -515,6 +598,9 @@ export const useChatStore = create((set, get) => ({
 
   setSelectedUser: (selectedUser) => {
     set({ selectedUser, conversationSearchQuery: "", conversationSearchOpen: false, replyToMessage: null });
-    if (selectedUser) get().clearUnread(selectedUser._id);
+    if (selectedUser) {
+      get().clearUnread(selectedUser._id);
+      get().markMessagesAsRead(selectedUser._id);
+    }
   },
 }));

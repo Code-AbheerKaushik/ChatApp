@@ -4,6 +4,24 @@ import { useAuthStore } from "../store/useAuthStore";
 import { useChatStore } from "../store/useChatStore";
 import { useNavigate } from "react-router-dom";
 
+const formatLastSeen = (lastSeenTime) => {
+  if (!lastSeenTime) return "Offline";
+  const date = new Date(lastSeenTime);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+
+  if (diffMins < 1) return "Last seen just now";
+  if (diffMins < 60) return `Last seen ${diffMins}m ago`;
+
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `Last seen ${diffHours}h ago`;
+
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays === 1) return "Last seen yesterday";
+  return `Last seen ${diffDays} days ago`;
+};
+
 const ChatHeader = () => {
   const { selectedUser, setSelectedUser, typingUsers, conversationSearchQuery, setConversationSearch, toggleConversationSearch, conversationSearchOpen } = useChatStore();
   const { onlineUsers } = useAuthStore();
@@ -19,7 +37,7 @@ const ChatHeader = () => {
     ? "typing..."
     : isOnline
     ? "Online"
-    : "Offline";
+    : formatLastSeen(selectedUser?.lastSeen);
 
   // Close menu on click outside
   useEffect(() => {

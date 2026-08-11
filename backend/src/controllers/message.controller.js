@@ -18,9 +18,17 @@ export const getUsersForSidebar = async (req, res) => {
           ],
         }).sort({ createdAt: -1 });
 
+        // Count unread messages from this user to the logged-in user
+        const unreadCount = await Message.countDocuments({
+          senderId: user._id,
+          receiverId: loggedInUserId,
+          status: { $ne: "read" },
+        });
+
         return {
           ...user.toObject(),
           lastMessage: lastMessage || null,
+          unreadCount,
         };
       })
     );
@@ -44,15 +52,38 @@ export const getMessages = async (req, res) => {
     const { id: userToChatId } = req.params;
     const myId = req.user._id;
 
-    // Authorization: only allow if the user is part of this conversation
-    // (since this is 1-to-1, userToChatId must be a real user)
+    // 1. Automatically mark unread messages from this sender to me as read
+    const unreadMessages = await Message.find({
+      senderId: userToChatId,
+      receiverId: myId,
+      status: { $ne: "read" },
+    }).select("_id");
+
+    if (unreadMessages.length > 0) {
+      const messageIds = unreadMessages.map((m) => m._id);
+      await Message.updateMany(
+        { _id: { $in: messageIds } },
+        { $set: { status: "read", readAt: new Date() } }
+      );
+
+      // Notify the sender that their messages have been read
+      const senderSocketId = getReceiverSocketId(userToChatId);
+      if (senderSocketId) {
+        io.to(senderSocketId).emit("messagesRead", {
+          readBy: myId,
+          messageIds,
+        });
+      }
+    }
+
+    // 2. Fetch the conversation messages
     const messages = await Message.find({
       $or: [
         { senderId: myId, receiverId: userToChatId },
         { senderId: userToChatId, receiverId: myId },
       ],
     })
-      .sort({ createdAt: 1 }) // Always return in chronological order
+      .sort({ createdAt: 1 })
       .populate("replyTo");
 
     res.status(200).json(messages);
@@ -92,6 +123,10 @@ export const sendMessage = async (req, res) => {
       fileUrl = uploadResponse.secure_url;
     }
 
+    const receiverSocketId = getReceiverSocketId(receiverId);
+    const initialStatus = receiverSocketId ? "delivered" : "sent";
+    const deliveredAt = receiverSocketId ? new Date() : undefined;
+
     const newMessage = new Message({
       senderId,
       receiverId,
@@ -101,6 +136,8 @@ export const sendMessage = async (req, res) => {
       fileType,
       replyTo: replyTo || null,
       clientMessageId: clientMessageId || null,
+      status: initialStatus,
+      deliveredAt,
     });
 
     await newMessage.save();
@@ -108,7 +145,6 @@ export const sendMessage = async (req, res) => {
     // Populate replyTo for realtime message delivery
     const populatedMessage = await Message.findById(newMessage._id).populate("replyTo");
 
-    const receiverSocketId = getReceiverSocketId(receiverId);
     if (receiverSocketId) {
       io.to(receiverSocketId).emit("newMessage", populatedMessage);
     }
@@ -249,6 +285,41 @@ export const togglePinMessage = async (req, res) => {
     res.status(200).json(populatedMessage);
   } catch (error) {
     console.log("Error in togglePinMessage: ", error.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const markConversationAsRead = async (req, res) => {
+  try {
+    const { senderId } = req.params; // The user whose messages we are marking as read
+    const myId = req.user._id;
+
+    const unreadMessages = await Message.find({
+      senderId,
+      receiverId: myId,
+      status: { $ne: "read" },
+    }).select("_id");
+
+    if (unreadMessages.length > 0) {
+      const messageIds = unreadMessages.map((m) => m._id);
+      await Message.updateMany(
+        { _id: { $in: messageIds } },
+        { $set: { status: "read", readAt: new Date() } }
+      );
+
+      // Notify the sender
+      const senderSocketId = getReceiverSocketId(senderId);
+      if (senderSocketId) {
+        io.to(senderSocketId).emit("messagesRead", {
+          readBy: myId,
+          messageIds,
+        });
+      }
+    }
+
+    res.status(200).json({ success: true, count: unreadMessages.length });
+  } catch (error) {
+    console.log("Error in markConversationAsRead: ", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };

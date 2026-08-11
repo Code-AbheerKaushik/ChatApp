@@ -86,6 +86,11 @@ const userSchema = new mongoose.Schema(
     onboardingStep: { type: Number, default: 0 },
     onboardingComplete: { type: Boolean, default: false },
     profileCompleted: { type: Boolean, default: false },
+
+    lastSeen: {
+      type: Date,
+      default: Date.now,
+    },
   },
   { timestamps: true }
 );

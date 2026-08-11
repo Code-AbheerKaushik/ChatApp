@@ -52,11 +52,12 @@ const SidebarItem = memo(({
   isPinned,
   isMuted,
   isFavorite,
-  hasUnread,
+  unreadCount,
   onSelect,
   onOpenMenu,
 }) => {
   const triggerRef = useRef(null);
+  const hasUnread = unreadCount > 0;
   const preview = getLastMessagePreview(user.lastMessage);
   const timestamp = formatTime(user.lastMessage?.createdAt);
 
@@ -128,13 +129,15 @@ const SidebarItem = memo(({
             </span>
           </div>
 
-          {/* Row 2: Last Message Preview + Unread Dot */}
+          {/* Row 2: Last Message Preview + Unread Badge */}
           <div className="flex items-center justify-between mt-0.5 gap-2">
             <p className={`text-xs truncate leading-snug ${hasUnread ? "text-base-content/80 font-semibold" : "text-base-content/50"}`}>
               {preview}
             </p>
             {hasUnread && (
-              <span className="size-2 rounded-full bg-primary flex-shrink-0 animate-pulse" />
+              <span className="bg-primary text-primary-content text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[1.25rem] h-5 flex items-center justify-center flex-shrink-0 animate-pulse">
+                {unreadCount}
+              </span>
             )}
           </div>
         </div>
@@ -165,7 +168,7 @@ const Sidebar = () => {
     getUsers, users, selectedUser, setSelectedUser, isUsersLoading,
     searchQuery, setSearchQuery,
     activeFilter, setActiveFilter,
-    pinnedUsers, archivedUsers, mutedUsers, favoriteUsers, unreadUsers,
+    pinnedUsers, archivedUsers, mutedUsers, favoriteUsers, unreadUsers, unreadCounts,
     togglePinnedUser, toggleArchivedUser, toggleMutedUser, toggleFavoriteUser,
     markUnread, clearUnread,
   } = useChatStore();
@@ -345,7 +348,7 @@ const Sidebar = () => {
                 isPinned={pinnedUsers.includes(userId)}
                 isMuted={mutedUsers.includes(userId)}
                 isFavorite={favoriteUsers.includes(userId)}
-                hasUnread={unreadUsers.includes(userId)}
+                unreadCount={unreadCounts[userId] || user.unreadCount || 0}
                 onSelect={() => {
                   setSelectedUser(user);
                   handleCloseMenu();

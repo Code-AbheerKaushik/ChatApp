@@ -54,9 +54,25 @@ const messageSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    status: {
+      type: String,
+      enum: ["sent", "delivered", "read"],
+      default: "sent",
+      index: true,
+    },
+    deliveredAt: {
+      type: Date,
+    },
+    readAt: {
+      type: Date,
+    },
   },
   { timestamps: true }
 );
+
+// Optimize query performance for unread count, global search, and conversations
+messageSchema.index({ receiverId: 1, status: 1 });
+messageSchema.index({ senderId: 1, receiverId: 1, createdAt: -1 });
 
 const Message = mongoose.model("Message", messageSchema);
 

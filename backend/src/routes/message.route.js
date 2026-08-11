@@ -8,6 +8,7 @@ import {
   deleteMessage,
   reactToMessage,
   togglePinMessage,
+  markConversationAsRead,
 } from "../controllers/message.controller.js";
 
 const router = express.Router();
@@ -20,5 +21,6 @@ router.put("/edit/:id", protectRoute, editMessage);
 router.delete("/delete/:id", protectRoute, deleteMessage);
 router.post("/react/:id", protectRoute, reactToMessage);
 router.put("/pin/:id", protectRoute, togglePinMessage);
+router.put("/read/:senderId", protectRoute, markConversationAsRead);
 
 export default router;
