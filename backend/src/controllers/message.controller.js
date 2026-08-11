@@ -2,7 +2,13 @@ import User from "../models/user.model.js";
 import Message from "../models/message.model.js";
 
 import cloudinary from "../lib/cloudinary.js";
-import { getReceiverSocketId, io } from "../lib/socket.js";
+import { getReceiverSocketIds, io } from "../lib/socket.js";
+
+// Helper: emit an event to all active sockets of a user (multi-device safe)
+const emitToUser = (userId, event, data) => {
+  const socketIds = getReceiverSocketIds(userId);
+  for (const sid of socketIds) io.to(sid).emit(event, data);
+};
 import { sendPushNotificationToUser } from "../lib/pushNotification.js";
 
 const MAX_MEDIA_BYTES = 20 * 1024 * 1024;
@@ -100,14 +106,8 @@ export const getMessages = async (req, res) => {
         { $set: { status: "read", readAt: new Date() } }
       );
 
-      // Notify the sender that their messages have been read
-      const senderSocketId = getReceiverSocketId(userToChatId);
-      if (senderSocketId) {
-        io.to(senderSocketId).emit("messagesRead", {
-          readBy: myId,
-          messageIds,
-        });
-      }
+      // Notify the sender (all their devices) that their messages have been read
+      emitToUser(userToChatId, "messagesRead", { readBy: myId, messageIds });
     }
 
     // 2. Fetch the conversation messages (filtering out expired disappearing messages)
@@ -176,10 +176,6 @@ export const sendMessage = async (req, res) => {
       fileUrl = uploadResponse.secure_url;
     }
 
-    const receiverSocketId = getReceiverSocketId(receiverId);
-    const initialStatus = receiverSocketId ? "delivered" : "sent";
-    const deliveredAt = receiverSocketId ? new Date() : undefined;
-
     const newMessage = new Message({
       senderId,
       receiverId,
@@ -190,8 +186,7 @@ export const sendMessage = async (req, res) => {
       media: uploadedMedia,
       replyTo: replyTo || null,
       clientMessageId: clientMessageId || null,
-      status: initialStatus,
-      deliveredAt,
+      status: "sent",  // Always start as "sent"; delivery ACK from client upgrades to "delivered"
     });
 
     await newMessage.save();
@@ -199,8 +194,10 @@ export const sendMessage = async (req, res) => {
     // Populate replyTo for realtime message delivery
     const populatedMessage = serializeMessage(await Message.findById(newMessage._id).populate("replyTo"));
 
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit("newMessage", populatedMessage);
+    // Emit to ALL active sockets of the recipient (multi-device support)
+    const receiverSocketIds = getReceiverSocketIds(receiverId);
+    for (const socketId of receiverSocketIds) {
+      io.to(socketId).emit("newMessage", populatedMessage);
     }
 
     // Trigger Web Push notification asynchronously for receiver
@@ -272,15 +269,14 @@ export const forwardMessage = async (req, res) => {
         const existing = await Message.findOne({ senderId, clientMessageId: key }).populate("replyTo");
         if (existing) return existing;
       }
-      const receiverSocketId = getReceiverSocketId(receiverId);
       const message = await Message.create({
         senderId, receiverId, text: original.text, image: original.image, file: original.file,
         fileType: original.fileType, media: original.media?.map((media) => ({ ...media.toObject(), _id: undefined })) || [], clientMessageId: key,
         forwardedFrom: { messageId: original._id, senderId: original.senderId, forwardedAt: new Date() },
-        status: receiverSocketId ? "delivered" : "sent", deliveredAt: receiverSocketId ? new Date() : undefined,
+        status: "sent",
       });
       const populated = serializeMessage(await Message.findById(message._id).populate("replyTo"));
-      if (receiverSocketId) io.to(receiverSocketId).emit("newMessage", populated);
+      emitToUser(receiverId, "newMessage", populated);
       return populated;
     }));
     res.status(201).json(results);
@@ -356,11 +352,8 @@ export const editMessage = async (req, res) => {
 
     const populatedMessage = await Message.findById(message._id).populate("replyTo");
 
-    // Broadcast change
-    const receiverSocketId = getReceiverSocketId(message.receiverId);
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit("messageEdited", populatedMessage);
-    }
+    // Broadcast change to all recipient devices
+    emitToUser(message.receiverId, "messageEdited", populatedMessage);
 
     res.status(200).json(populatedMessage);
   } catch (error) {
@@ -386,11 +379,8 @@ export const deleteMessage = async (req, res) => {
 
     await Message.findByIdAndDelete(messageId);
 
-    // Broadcast deletion
-    const receiverSocketId = getReceiverSocketId(message.receiverId);
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit("messageDeleted", messageId);
-    }
+    // Broadcast deletion to all recipient devices
+    emitToUser(message.receiverId, "messageDeleted", messageId);
 
     res.status(200).json({ message: "Message deleted successfully", messageId });
   } catch (error) {
@@ -432,12 +422,9 @@ export const reactToMessage = async (req, res) => {
 
     const populatedMessage = await Message.findById(message._id).populate("replyTo");
 
-    // Broadcast reaction
+    // Broadcast reaction to all devices of the other party
     const otherUserId = message.senderId.toString() === userId.toString() ? message.receiverId : message.senderId;
-    const receiverSocketId = getReceiverSocketId(otherUserId);
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit("messageReaction", populatedMessage);
-    }
+    emitToUser(otherUserId, "messageReaction", populatedMessage);
 
     res.status(200).json(populatedMessage);
   } catch (error) {
@@ -460,10 +447,7 @@ export const togglePinMessage = async (req, res) => {
     const populatedMessage = await Message.findById(message._id).populate("replyTo");
 
     const otherUserId = message.senderId.toString() === req.user._id.toString() ? message.receiverId : message.senderId;
-    const receiverSocketId = getReceiverSocketId(otherUserId);
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit("messagePinned", populatedMessage);
-    }
+    emitToUser(otherUserId, "messagePinned", populatedMessage);
 
     res.status(200).json(populatedMessage);
   } catch (error) {
@@ -490,14 +474,8 @@ export const markConversationAsRead = async (req, res) => {
         { $set: { status: "read", readAt: new Date() } }
       );
 
-      // Notify the sender
-      const senderSocketId = getReceiverSocketId(senderId);
-      if (senderSocketId) {
-        io.to(senderSocketId).emit("messagesRead", {
-          readBy: myId,
-          messageIds,
-        });
-      }
+      // Notify the sender (all their devices)
+      emitToUser(senderId, "messagesRead", { readBy: myId, messageIds });
     }
 
     res.status(200).json({ success: true, count: unreadMessages.length });

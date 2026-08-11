@@ -14,26 +14,57 @@ const io = new Server(server, {
   },
 });
 
-export function getReceiverSocketId(userId) {
-  return userSocketMap[userId];
+// ── User → Socket mapping ────────────────────────────────────────────────────
+// Stores a Set of socket IDs per user to support multi-device connections.
+// { userId: Set<socketId> }
+const userSocketMap = {};
+
+/**
+ * Get all active socket IDs for a user (multi-device safe).
+ * Returns an array (may be empty).
+ */
+export function getReceiverSocketIds(userId) {
+  const key = String(userId);
+  const ids = userSocketMap[key];
+  return ids ? Array.from(ids) : [];
 }
 
-// used to store online users
-const userSocketMap = {}; // {userId: socketId}
+/**
+ * @deprecated Use getReceiverSocketIds instead.
+ * Kept for backwards-compat with any code that hasn't been migrated yet.
+ * Returns the first socket ID for the user, or undefined.
+ */
+export function getReceiverSocketId(userId) {
+  const ids = getReceiverSocketIds(userId);
+  return ids[0];
+}
+
+/**
+ * Emit an event to ALL active sockets of a user (all devices/tabs).
+ */
+function emitToUser(userId, event, data) {
+  const socketIds = getReceiverSocketIds(userId);
+  for (const sid of socketIds) {
+    io.to(sid).emit(event, data);
+  }
+}
 
 io.on("connection", async (socket) => {
   console.log("A user connected", socket.id);
 
-  const userId = socket.handshake.query.userId;
+  const userId = String(socket.handshake.query.userId || "");
+
   if (userId) {
-    userSocketMap[userId] = socket.id;
+    // Register this socket under the user's ID (multi-device: add to Set)
+    if (!userSocketMap[userId]) userSocketMap[userId] = new Set();
+    userSocketMap[userId].add(socket.id);
 
     try {
-      // 1. Mark any pending "sent" messages to this user as "delivered"
+      // Mark any "sent" messages addressed to this user as "delivered" on reconnect
       const pendingMessages = await Message.find({
         receiverId: userId,
         status: "sent",
-      }).select("_id senderId");
+      }).select("_id senderId").lean();
 
       if (pendingMessages.length > 0) {
         const messageIds = pendingMessages.map((m) => m._id);
@@ -42,7 +73,7 @@ io.on("connection", async (socket) => {
           { $set: { status: "delivered", deliveredAt: new Date() } }
         );
 
-        // Group by sender and notify online senders
+        // Notify each sender that their messages were delivered
         const senderGroups = pendingMessages.reduce((acc, m) => {
           const sId = String(m.senderId);
           acc[sId] = acc[sId] || [];
@@ -51,13 +82,10 @@ io.on("connection", async (socket) => {
         }, {});
 
         for (const [senderId, ids] of Object.entries(senderGroups)) {
-          const senderSocketId = userSocketMap[senderId];
-          if (senderSocketId) {
-            io.to(senderSocketId).emit("messagesDelivered", {
-              receiverId: userId,
-              messageIds: ids,
-            });
-          }
+          emitToUser(senderId, "messagesDelivered", {
+            receiverId: userId,
+            messageIds: ids,
+          });
         }
       }
     } catch (err) {
@@ -65,9 +93,10 @@ io.on("connection", async (socket) => {
     }
   }
 
-  io.emit("getOnlineUsers", Object.keys(userSocketMap));
+  // Broadcast updated online user list (only users with at least one socket)
+  io.emit("getOnlineUsers", Object.keys(userSocketMap).filter(uid => userSocketMap[uid]?.size > 0));
 
-  // Join group socket rooms
+  // ── Join group rooms ────────────────────────────────────────────────────────
   socket.on("joinGroup", (groupId) => {
     if (groupId) socket.join(`group_${groupId}`);
   });
@@ -76,17 +105,35 @@ io.on("connection", async (socket) => {
     if (groupId) socket.leave(`group_${groupId}`);
   });
 
-  // ─── Typing Events with privacy check ─────────────────────────────────────
+  // ── Delivery acknowledgement from recipient client ──────────────────────────
+  // When the PC/mobile client receives a newMessage event, it emits this back.
+  // We update DB status and notify the original sender (phone) of ✓✓ delivery.
+  socket.on("messageDelivered", async ({ messageId, senderId }) => {
+    if (!messageId || !senderId) return;
+    try {
+      const updated = await Message.findOneAndUpdate(
+        { _id: messageId, status: "sent" },   // Only update if still "sent"
+        { $set: { status: "delivered", deliveredAt: new Date() } },
+        { new: true }
+      );
+      if (updated) {
+        // Notify the sender (phone) that the message was delivered on recipient device
+        emitToUser(String(senderId), "messagesDelivered", {
+          receiverId: userId,
+          messageIds: [updated._id],
+        });
+      }
+    } catch (err) {
+      console.error("Error handling messageDelivered ack:", err.message);
+    }
+  });
+
+  // ── Typing Events with privacy check ───────────────────────────────────────
   socket.on("typing", async ({ receiverId }) => {
     try {
       const sender = await User.findById(userId).select("privacy").lean();
-      // If sender has disabled typing indicator, do not emit
       if (sender?.privacy?.typingIndicator === false) return;
-
-      const receiverSocketId = userSocketMap[receiverId];
-      if (receiverSocketId) {
-        io.to(receiverSocketId).emit("typing", { senderId: userId });
-      }
+      emitToUser(receiverId, "typing", { senderId: userId });
     } catch (err) {
       console.error("Error in typing event:", err.message);
     }
@@ -96,45 +143,42 @@ io.on("connection", async (socket) => {
     try {
       const sender = await User.findById(userId).select("privacy").lean();
       if (sender?.privacy?.typingIndicator === false) return;
-
-      const receiverSocketId = userSocketMap[receiverId];
-      if (receiverSocketId) {
-        io.to(receiverSocketId).emit("stopTyping", { senderId: userId });
-      }
+      emitToUser(receiverId, "stopTyping", { senderId: userId });
     } catch (err) {
       console.error("Error in stopTyping event:", err.message);
     }
   });
 
-  // ─── Read Receipts with privacy check ─────────────────────────────────────
+  // ── Read Receipts with privacy check ───────────────────────────────────────
   socket.on("messageRead", async ({ senderId, messageId }) => {
     try {
       const reader = await User.findById(userId).select("privacy").lean();
       if (reader?.privacy?.readReceipts === false) return;
-
-      const senderSocketId = userSocketMap[senderId];
-      if (senderSocketId) {
-        io.to(senderSocketId).emit("messageRead", { readBy: userId, messageId });
-      }
+      emitToUser(senderId, "messageRead", { readBy: userId, messageId });
     } catch (err) {
       console.error("Error in messageRead event:", err.message);
     }
   });
 
+  // ── Disconnect ──────────────────────────────────────────────────────────────
   socket.on("disconnect", async () => {
     console.log("A user disconnected", socket.id);
-    if (userId) {
-      delete userSocketMap[userId];
-      const disconnectTime = new Date();
-      try {
-        await User.findByIdAndUpdate(userId, { lastSeen: disconnectTime });
-        // Emit lastSeen presence update to everyone in real-time
-        io.emit("userOffline", { userId, lastSeen: disconnectTime });
-      } catch (err) {
-        console.error("Error saving lastSeen on disconnect:", err.message);
+    if (userId && userSocketMap[userId]) {
+      // Only remove this specific socket — other devices remain connected
+      userSocketMap[userId].delete(socket.id);
+      if (userSocketMap[userId].size === 0) {
+        delete userSocketMap[userId];
+        // User has fully gone offline — update lastSeen and broadcast presence
+        const disconnectTime = new Date();
+        try {
+          await User.findByIdAndUpdate(userId, { lastSeen: disconnectTime });
+          io.emit("userOffline", { userId, lastSeen: disconnectTime });
+        } catch (err) {
+          console.error("Error saving lastSeen on disconnect:", err.message);
+        }
       }
     }
-    io.emit("getOnlineUsers", Object.keys(userSocketMap));
+    io.emit("getOnlineUsers", Object.keys(userSocketMap).filter(uid => userSocketMap[uid]?.size > 0));
   });
 });
 

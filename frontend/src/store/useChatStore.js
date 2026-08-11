@@ -600,6 +600,16 @@ export const useChatStore = create((set, get) => ({
 
         return { users: updatedUsers };
       });
+
+      // ── 3. DELIVERY ACKNOWLEDGEMENT ────────────────────────────────────────────
+      // If this is an incoming message (not from us), acknowledge delivery to the server.
+      // The server will update DB status and emit "messagesDelivered" back to the sender's phone.
+      if (msgSenderId !== authUserId) {
+        socket.emit("messageDelivered", {
+          messageId: newMessage._id,
+          senderId: msgSenderId,
+        });
+      }
     });
 
     // ── Group Messages Realtime Listener ──────────────────────────────────────

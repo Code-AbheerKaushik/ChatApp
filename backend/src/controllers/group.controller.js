@@ -2,8 +2,14 @@ import Group from "../models/group.model.js";
 import Message from "../models/message.model.js";
 import User from "../models/user.model.js";
 import cloudinary from "../lib/cloudinary.js";
-import { getReceiverSocketId, io } from "../lib/socket.js";
+import { getReceiverSocketIds, io } from "../lib/socket.js";
 import { sendPushNotificationToUser } from "../lib/pushNotification.js";
+
+// Helper: emit an event to all active sockets of a user (multi-device safe)
+const emitToUser = (userId, event, data) => {
+  const socketIds = getReceiverSocketIds(userId);
+  for (const sid of socketIds) io.to(sid).emit(event, data);
+};
 
 const serializeMessage = (message) => {
   const plain = message.toObject ? message.toObject() : message;
@@ -59,12 +65,9 @@ export const createGroup = async (req, res) => {
       .populate("admins", "fullName profilePic username")
       .populate("creatorId", "fullName profilePic username");
 
-    // Notify all online group members via socket
+    // Notify all online group members via socket (all devices)
     uniqueMembers.forEach((memberId) => {
-      const socketId = getReceiverSocketId(memberId);
-      if (socketId) {
-        io.to(socketId).emit("newGroupCreated", populatedGroup);
-      }
+      emitToUser(memberId, "newGroupCreated", populatedGroup);
     });
 
     res.status(201).json(populatedGroup);
@@ -144,12 +147,9 @@ export const updateGroup = async (req, res) => {
       .populate("members.userId", "fullName profilePic username")
       .populate("admins", "fullName profilePic username");
 
-    // Notify all members in room
+    // Notify all members on all their devices
     group.members.forEach((m) => {
-      const socketId = getReceiverSocketId(m.userId);
-      if (socketId) {
-        io.to(socketId).emit("groupUpdated", updatedGroup);
-      }
+      emitToUser(m.userId, "groupUpdated", updatedGroup);
     });
 
     res.status(200).json(updatedGroup);
@@ -188,8 +188,7 @@ export const addGroupMembers = async (req, res) => {
       .populate("admins", "fullName profilePic username");
 
     group.members.forEach((m) => {
-      const socketId = getReceiverSocketId(m.userId);
-      if (socketId) io.to(socketId).emit("groupUpdated", updatedGroup);
+      emitToUser(m.userId, "groupUpdated", updatedGroup);
     });
 
     res.status(200).json(updatedGroup);
@@ -222,13 +221,11 @@ export const removeGroupMember = async (req, res) => {
       .populate("members.userId", "fullName profilePic username")
       .populate("admins", "fullName profilePic username");
 
-    // Notify removed user and remaining group members
-    const removedSocketId = getReceiverSocketId(targetUserId);
-    if (removedSocketId) io.to(removedSocketId).emit("groupMemberRemoved", { groupId, userId: targetUserId });
+    // Notify removed user and remaining group members on all their devices
+    emitToUser(targetUserId, "groupMemberRemoved", { groupId, userId: targetUserId });
 
     group.members.forEach((m) => {
-      const socketId = getReceiverSocketId(m.userId);
-      if (socketId) io.to(socketId).emit("groupUpdated", updatedGroup);
+      emitToUser(m.userId, "groupUpdated", updatedGroup);
     });
 
     res.status(200).json(updatedGroup);
@@ -262,8 +259,7 @@ export const leaveGroup = async (req, res) => {
       .populate("admins", "fullName profilePic username");
 
     group.members.forEach((m) => {
-      const socketId = getReceiverSocketId(m.userId);
-      if (socketId) io.to(socketId).emit("groupUpdated", updatedGroup);
+      emitToUser(m.userId, "groupUpdated", updatedGroup);
     });
 
     res.status(200).json({ success: true, message: "Left group successfully" });
@@ -342,12 +338,9 @@ export const sendGroupMessage = async (req, res) => {
         .populate("replyTo")
     );
 
-    // Broadcast to all active online group members
+    // Broadcast to all active online group members on all their devices
     group.members.forEach((m) => {
-      const socketId = getReceiverSocketId(m.userId);
-      if (socketId) {
-        io.to(socketId).emit("newGroupMessage", { groupId, message: populatedMsg });
-      }
+      emitToUser(m.userId, "newGroupMessage", { groupId, message: populatedMsg });
       // Send Web Push notification to offline or inactive members (excluding sender)
       if (String(m.userId) !== String(senderId)) {
         sendPushNotificationToUser(m.userId, {
