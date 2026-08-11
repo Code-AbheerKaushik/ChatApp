@@ -2,6 +2,7 @@ import { create } from "zustand";
 import toast from "react-hot-toast";
 import { axiosInstance } from "../lib/axios";
 import { useAuthStore } from "./useAuthStore";
+import { playIncomingSound } from "../lib/sound";
 
 // --- Helpers: Persist local state to localStorage ---
 const loadLocal = (key, fallback = []) => {
@@ -507,6 +508,12 @@ export const useChatStore = create((set, get) => ({
     socket.on("newMessage", (newMessage) => {
       const msgSenderId = String(newMessage.senderId?._id ?? newMessage.senderId);
       const msgReceiverId = String(newMessage.receiverId?._id ?? newMessage.receiverId);
+      const authUserId = String(useAuthStore.getState().authUser?._id || "");
+
+      // Play in-app notification sound for incoming non-own messages
+      if (msgSenderId !== authUserId) {
+        playIncomingSound(newMessage);
+      }
 
       const isRelevant =
         msgSenderId === selectedUserId ||
@@ -659,6 +666,13 @@ export const useChatStore = create((set, get) => ({
     });
 
     socket.on("newGroupMessage", ({ groupId, message }) => {
+      const authUserId = String(useAuthStore.getState().authUser?._id || "");
+      const msgSenderId = String(message.senderId?._id ?? message.senderId);
+
+      if (msgSenderId !== authUserId) {
+        playIncomingSound(message);
+      }
+
       const selectedGroup = useGroupStore.getState().selectedGroup;
       if (selectedGroup && String(selectedGroup._id) === String(groupId)) {
         useGroupStore.setState((state) => ({

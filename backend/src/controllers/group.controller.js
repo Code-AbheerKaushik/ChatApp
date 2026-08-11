@@ -3,6 +3,7 @@ import Message from "../models/message.model.js";
 import User from "../models/user.model.js";
 import cloudinary from "../lib/cloudinary.js";
 import { getReceiverSocketId, io } from "../lib/socket.js";
+import { sendPushNotificationToUser } from "../lib/pushNotification.js";
 
 const serializeMessage = (message) => {
   const plain = message.toObject ? message.toObject() : message;
@@ -346,6 +347,19 @@ export const sendGroupMessage = async (req, res) => {
       const socketId = getReceiverSocketId(m.userId);
       if (socketId) {
         io.to(socketId).emit("newGroupMessage", { groupId, message: populatedMsg });
+      }
+      // Send Web Push notification to offline or inactive members (excluding sender)
+      if (String(m.userId) !== String(senderId)) {
+        sendPushNotificationToUser(m.userId, {
+          title: `${req.user.fullName || "User"} in ${group.name}`,
+          body: text?.trim() ? text.trim() : media.length ? "Sent an attachment 📎" : "Sent a message 💬",
+          icon: group.groupPic || req.user.profilePic || "/avatar.png",
+          data: {
+            url: "/",
+            groupId: String(group._id),
+            messageId: String(newMessage._id),
+          },
+        }).catch((err) => console.error("Group push error:", err));
       }
     });
 

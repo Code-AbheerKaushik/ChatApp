@@ -3,6 +3,7 @@ import Message from "../models/message.model.js";
 
 import cloudinary from "../lib/cloudinary.js";
 import { getReceiverSocketId, io } from "../lib/socket.js";
+import { sendPushNotificationToUser } from "../lib/pushNotification.js";
 
 const MAX_MEDIA_BYTES = 20 * 1024 * 1024;
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm", "audio/webm", "audio/mpeg", "audio/ogg", "application/pdf", "text/plain"]);
@@ -201,6 +202,18 @@ export const sendMessage = async (req, res) => {
     if (receiverSocketId) {
       io.to(receiverSocketId).emit("newMessage", populatedMessage);
     }
+
+    // Trigger Web Push notification asynchronously for receiver
+    sendPushNotificationToUser(receiverId, {
+      title: req.user.fullName || "New Message",
+      body: text?.trim() ? text.trim() : uploadedMedia.length ? "Sent an attachment 📎" : "Sent a message 💬",
+      icon: req.user.profilePic || "/avatar.png",
+      data: {
+        url: "/",
+        conversationId: String(senderId),
+        messageId: String(newMessage._id),
+      },
+    }).catch((err) => console.error("Push notify error:", err));
 
     res.status(201).json(populatedMessage);
   } catch (error) {

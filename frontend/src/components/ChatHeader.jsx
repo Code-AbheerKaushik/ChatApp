@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from "react";
-import { ArrowLeft, Phone, Video, Search, MoreVertical, X, BellOff, Star, Archive, Trash2, Pin, User, Settings, Clock, Users } from "lucide-react";
+import { ArrowLeft, Phone, Video, Search, MoreVertical, X, BellOff, Star, Archive, Trash2, Pin, User, Settings, Clock, Users, ShieldCheck } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
 import { useChatStore } from "../store/useChatStore";
 import { useGroupStore } from "../store/useGroupStore";
 import { useNavigate } from "react-router-dom";
+import SecurityIndicatorModal from "./SecurityIndicatorModal";
 
 const formatLastSeen = (lastSeenTime) => {
   if (!lastSeenTime) return "Offline";
@@ -29,6 +30,7 @@ const ChatHeader = () => {
   const { onlineUsers } = useAuthStore();
   const [menuOpen, setMenuOpen] = useState(false);
   const [callModal, setCallModal] = useState(null); // "voice" | "video" | null
+  const [securityModalOpen, setSecurityModalOpen] = useState(false);
   const menuRef = useRef(null);
   const navigate = useNavigate();
 
@@ -115,6 +117,16 @@ const ChatHeader = () => {
 
         {/* Right: Action buttons */}
         <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
+          {/* Truthful Security Indicator Button */}
+          <button
+            onClick={() => setSecurityModalOpen(true)}
+            className="btn btn-ghost btn-xs rounded-full gap-1 text-primary hover:bg-primary/10 px-2"
+            title="TLS Encrypted in Transit • View Security Details"
+          >
+            <ShieldCheck className="size-3.5" />
+            <span className="text-[11px] font-semibold hidden lg:inline">TLS Protected</span>
+          </button>
+
           {/* Desktop Search toggle */}
           <button
             onClick={toggleConversationSearch}
@@ -234,6 +246,9 @@ const ChatHeader = () => {
           </div>
         </div>
       )}
+
+      {/* Security Indicator Modal */}
+      <SecurityIndicatorModal isOpen={securityModalOpen} onClose={() => setSecurityModalOpen(false)} />
     </>
   );
 };
