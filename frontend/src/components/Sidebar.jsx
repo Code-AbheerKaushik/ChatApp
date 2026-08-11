@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback, memo } from "react";
+import { axiosInstance } from "../lib/axios";
 import { useChatStore } from "../store/useChatStore";
 import { useAuthStore } from "../store/useAuthStore";
 import { useNavigate } from "react-router-dom";
@@ -6,7 +7,7 @@ import SidebarSkeleton from "./skeletons/SidebarSkeleton";
 import ContextMenuPortal from "./ContextMenuPortal";
 import {
   Users, Search, X, Pin, Archive, BellOff, Star,
-  MailOpen, MoreVertical, Trash2, User
+  MailOpen, MoreVertical, Trash2, User, MessageSquare
 } from "lucide-react";
 
 const FILTERS = [
@@ -171,6 +172,7 @@ const Sidebar = () => {
     pinnedUsers, archivedUsers, mutedUsers, favoriteUsers, unreadUsers, unreadCounts,
     togglePinnedUser, toggleArchivedUser, toggleMutedUser, toggleFavoriteUser,
     markUnread, clearUnread,
+    searchMessages, globalSearchResults, globalSearchHasMore, globalSearchLoading, openMessageResult,
   } = useChatStore();
 
   const { onlineUsers } = useAuthStore();
@@ -178,10 +180,23 @@ const Sidebar = () => {
 
   // Active Context Menu State (Single active menu across the app)
   const [activeMenu, setActiveMenu] = useState(null); // { user, triggerRect } | null
+  const [savedMessages, setSavedMessages] = useState([]);
 
   useEffect(() => {
     getUsers();
   }, [getUsers]);
+
+  useEffect(() => {
+    const query = searchQuery.trim();
+    if (query.length < 2) return;
+    const timer = setTimeout(() => searchMessages(query), 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, searchMessages]);
+
+  useEffect(() => {
+    if (activeFilter !== "saved") return;
+    axiosInstance.get("/messages/starred").then((res) => setSavedMessages(res.data.results)).catch(() => setSavedMessages([]));
+  }, [activeFilter]);
 
   const isOnline = useCallback((userId) => onlineUsers.includes(String(userId)), [onlineUsers]);
 
@@ -323,12 +338,29 @@ const Sidebar = () => {
               )}
             </button>
           ))}
+          <button onClick={() => setActiveFilter("saved")} className={`btn btn-xs rounded-full whitespace-nowrap flex-shrink-0 ${activeFilter === "saved" ? "btn-primary" : "btn-ghost hover:bg-base-200"}`}><Star className="size-3" /> Saved</button>
         </div>
       </div>
 
+      {searchQuery.trim().length >= 2 && (
+        <div className="border-b border-base-300 max-h-72 overflow-y-auto bg-base-100 z-20">
+          <p className="px-3 pt-2 text-[11px] font-semibold text-base-content/50">MESSAGES</p>
+          {globalSearchLoading && <p className="p-3 text-xs text-base-content/50">Searching…</p>}
+          {!globalSearchLoading && globalSearchResults.map((message) => {
+            const sender = message.senderId; const receiver = message.receiverId;
+            const conversation = String(sender?._id) === String(useAuthStore.getState().authUser?._id) ? receiver : sender;
+            return <button key={message._id} onClick={() => { openMessageResult(message); setSearchQuery(""); }} className="w-full flex gap-2 p-3 text-left hover:bg-base-200"><MessageSquare className="size-4 text-primary mt-0.5 flex-shrink-0" /><div className="min-w-0"><p className="text-xs font-medium truncate">{conversation?.fullName || "Conversation"} · {sender?.fullName || "You"}</p><p className="text-xs text-base-content/60 truncate">{message.text || "Attachment"}</p><p className="text-[10px] text-base-content/40">{new Date(message.createdAt).toLocaleString()}</p></div></button>;
+          })}
+          {!globalSearchLoading && globalSearchResults.length === 0 && <p className="p-3 text-xs text-base-content/50">No messages found</p>}
+          {globalSearchHasMore && <button className="btn btn-ghost btn-xs w-full mb-2" onClick={() => searchMessages(searchQuery, Math.floor(globalSearchResults.length / 20) + 1)}>Load more</button>}
+        </div>
+      )}
+
       {/* Contact List */}
       <div className="flex-1 overflow-y-auto min-h-0 messages-scrollbar">
-        {sortedUsers.length === 0 ? (
+        {activeFilter === "saved" ? (
+          savedMessages.length ? savedMessages.map((message) => <button key={message._id} className="w-full p-3 text-left hover:bg-base-200 border-b border-base-200" onClick={() => openMessageResult(message)}><p className="text-xs font-medium">{message.senderId?.fullName || "Unknown"}</p><p className="text-sm truncate">{message.text || "Attachment"}</p><p className="text-[10px] text-base-content/50">{new Date(message.createdAt).toLocaleString()}</p></button>) : <p className="p-5 text-center text-sm text-base-content/50">No saved messages</p>
+        ) : sortedUsers.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-40 text-center px-4 gap-2">
             <Users className="size-8 text-base-content/30" />
             <p className="text-sm text-base-content/50">

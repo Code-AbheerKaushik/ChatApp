@@ -63,6 +63,10 @@ export const useChatStore = create((set, get) => ({
   // --- Conversation search ---
   conversationSearchQuery: "",
   conversationSearchOpen: false,
+  globalSearchResults: [],
+  globalSearchHasMore: false,
+  globalSearchLoading: false,
+  navigationTargetMessageId: null,
 
   // --- In-flight reaction locks (prevent rapid duplicate calls) ---
   _reactionInFlight: {}, // { messageId: emoji }
@@ -77,6 +81,34 @@ export const useChatStore = create((set, get) => ({
 
   setReplyToMessage: (msg) => set({ replyToMessage: msg }),
   clearReplyToMessage: () => set({ replyToMessage: null }),
+  getDraft: (conversationId) => loadLocal(`chatty_draft_${conversationId}`, ""),
+  saveDraft: (conversationId, draft) => {
+    if (!conversationId) return;
+    if (draft) localStorage.setItem(`chatty_draft_${conversationId}`, JSON.stringify(draft));
+    else localStorage.removeItem(`chatty_draft_${conversationId}`);
+  },
+  searchMessages: async (query, page = 1) => {
+    if (query.trim().length < 2) return set({ globalSearchResults: [], globalSearchHasMore: false });
+    set({ globalSearchLoading: true });
+    try {
+      const res = await axiosInstance.get("/messages/search", { params: { q: query, page } });
+      set((state) => ({
+        globalSearchResults: page === 1 ? res.data.results : [...state.globalSearchResults, ...res.data.results],
+        globalSearchHasMore: res.data.hasMore,
+      }));
+    } catch { toast.error("Message search failed"); }
+    finally { set({ globalSearchLoading: false }); }
+  },
+  openMessageResult: (message) => {
+    const authUser = useAuthStore.getState().authUser;
+    const sender = message.senderId?._id || message.senderId;
+    const receiver = message.receiverId?._id || message.receiverId;
+    const conversationId = String(sender) === String(authUser._id) ? receiver : sender;
+    const user = get().users.find((candidate) => String(candidate._id) === String(conversationId));
+    if (user) get().setSelectedUser(user);
+    set({ navigationTargetMessageId: message._id, globalSearchResults: [] });
+  },
+  clearNavigationTarget: () => set({ navigationTargetMessageId: null }),
 
   // --- Toggle user list flags ---
   togglePinnedUser: (userId) => {
@@ -387,6 +419,31 @@ export const useChatStore = create((set, get) => ({
       }));
     } catch (error) {
       toast.error(error.response?.data?.message || "Failed to pin message");
+    }
+  },
+  toggleStarMessage: async (messageId) => {
+    const authUser = useAuthStore.getState().authUser;
+    const before = get().messages;
+    set((state) => ({ messages: state.messages.map((m) => {
+      if (m._id !== messageId) return m;
+      const starredBy = [...(m.starredBy || [])];
+      const i = starredBy.findIndex((id) => String(id?._id || id) === String(authUser._id));
+      if (i >= 0) starredBy.splice(i, 1); else starredBy.push(authUser._id);
+      return { ...m, starredBy };
+    }) }));
+    try {
+      const res = await axiosInstance.put(`/messages/star/${messageId}`);
+      set((state) => ({ messages: state.messages.map((m) => m._id === messageId ? { ...res.data, status: m.status } : m) }));
+    } catch { set({ messages: before }); toast.error("Could not update saved message"); }
+  },
+  forwardMessage: async (message, recipientIds) => {
+    const clientForwardId = generateClientMessageId();
+    try {
+      await axiosInstance.post(`/messages/forward/${message._id}`, { recipientIds, clientForwardId });
+      toast.success(`Forwarded to ${recipientIds.length} conversation${recipientIds.length === 1 ? "" : "s"}`);
+    } catch (error) {
+      toast.error(error.response?.data?.error || "Forward failed — try again");
+      throw error;
     }
   },
 

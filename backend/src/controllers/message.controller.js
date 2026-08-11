@@ -156,6 +156,93 @@ export const sendMessage = async (req, res) => {
   }
 };
 
+export const forwardMessage = async (req, res) => {
+  try {
+    const { id: messageId } = req.params;
+    const { recipientIds, clientForwardId } = req.body;
+    const senderId = req.user._id;
+    if (!Array.isArray(recipientIds) || recipientIds.length === 0) {
+      return res.status(400).json({ error: "Choose at least one conversation" });
+    }
+    const original = await Message.findOne({ _id: messageId, $or: [{ senderId }, { receiverId: senderId }] });
+    if (!original) return res.status(404).json({ error: "Message not found" });
+    const uniqueRecipients = [...new Set(recipientIds.map(String))].filter((id) => id !== String(senderId));
+    const allowed = await User.find({ _id: { $in: uniqueRecipients } }).select("_id");
+    if (allowed.length !== uniqueRecipients.length) return res.status(403).json({ error: "One or more conversations are unavailable" });
+
+    const results = await Promise.all(uniqueRecipients.map(async (receiverId) => {
+      const key = clientForwardId ? `${clientForwardId}:${receiverId}` : null;
+      if (key) {
+        const existing = await Message.findOne({ senderId, clientMessageId: key }).populate("replyTo");
+        if (existing) return existing;
+      }
+      const receiverSocketId = getReceiverSocketId(receiverId);
+      const message = await Message.create({
+        senderId, receiverId, text: original.text, image: original.image, file: original.file,
+        fileType: original.fileType, clientMessageId: key,
+        forwardedFrom: { messageId: original._id, senderId: original.senderId, forwardedAt: new Date() },
+        status: receiverSocketId ? "delivered" : "sent", deliveredAt: receiverSocketId ? new Date() : undefined,
+      });
+      const populated = await Message.findById(message._id).populate("replyTo");
+      if (receiverSocketId) io.to(receiverSocketId).emit("newMessage", populated);
+      return populated;
+    }));
+    res.status(201).json(results);
+  } catch (error) {
+    console.error("Error forwarding message:", error.message);
+    res.status(500).json({ error: "Could not forward message" });
+  }
+};
+
+export const searchMessages = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const query = String(req.query.q || "").trim();
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 50);
+    if (query.length < 2) return res.json({ results: [], page, hasMore: false });
+    const filter = { $and: [
+      { $or: [{ senderId: userId }, { receiverId: userId }] },
+      { $text: { $search: query } },
+    ] };
+    const rows = await Message.find(filter, { score: { $meta: "textScore" } })
+      .sort({ score: { $meta: "textScore" }, createdAt: -1 })
+      .skip((page - 1) * limit).limit(limit + 1)
+      .populate("senderId", "fullName profilePic")
+      .populate("receiverId", "fullName profilePic")
+      .lean();
+    const hasMore = rows.length > limit;
+    res.json({ results: rows.slice(0, limit), page, hasMore });
+  } catch (error) {
+    console.error("Error searching messages:", error.message);
+    res.status(500).json({ error: "Could not search messages" });
+  }
+};
+
+export const toggleStarMessage = async (req, res) => {
+  try {
+    const message = await Message.findOne({ _id: req.params.id, $or: [{ senderId: req.user._id }, { receiverId: req.user._id }] });
+    if (!message) return res.status(404).json({ error: "Message not found" });
+    const id = String(req.user._id);
+    const index = message.starredBy.findIndex((starredId) => String(starredId) === id);
+    if (index >= 0) message.starredBy.splice(index, 1); else message.starredBy.push(req.user._id);
+    await message.save();
+    const populated = await Message.findById(message._id).populate("replyTo");
+    res.json(populated);
+  } catch (error) { res.status(500).json({ error: "Could not update star" }); }
+};
+
+export const getStarredMessages = async (req, res) => {
+  try {
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 30, 1), 50);
+    const rows = await Message.find({ starredBy: req.user._id }).sort({ createdAt: -1 })
+      .skip((page - 1) * limit).limit(limit + 1)
+      .populate("senderId", "fullName profilePic").populate("receiverId", "fullName profilePic").lean();
+    res.json({ results: rows.slice(0, limit), page, hasMore: rows.length > limit });
+  } catch (error) { res.status(500).json({ error: "Could not load saved messages" }); }
+};
+
 export const editMessage = async (req, res) => {
   try {
     const { id: messageId } = req.params;

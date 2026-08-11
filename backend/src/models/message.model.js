@@ -29,6 +29,15 @@ const messageSchema = new mongoose.Schema(
       ref: "Message",
       default: null,
     },
+    forwardedFrom: {
+      messageId: { type: mongoose.Schema.Types.ObjectId, ref: "Message" },
+      senderId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      forwardedAt: { type: Date },
+    },
+    starredBy: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    }],
     reactions: [
       {
         userId: {
@@ -73,6 +82,8 @@ const messageSchema = new mongoose.Schema(
 // Optimize query performance for unread count, global search, and conversations
 messageSchema.index({ receiverId: 1, status: 1 });
 messageSchema.index({ senderId: 1, receiverId: 1, createdAt: -1 });
+messageSchema.index({ senderId: 1, receiverId: 1, text: "text" });
+messageSchema.index({ starredBy: 1, createdAt: -1 });
 
 const Message = mongoose.model("Message", messageSchema);
 

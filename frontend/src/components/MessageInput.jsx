@@ -30,20 +30,37 @@ const MessageInput = () => {
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const typingTimerRef = useRef(null);
+  const draftTimerRef = useRef(null);
   const isSendingRef = useRef(false); // Prevent double-submit
 
   const {
     sendMessage,
     replyToMessage, clearReplyToMessage,
     emitTyping, emitStopTyping,
+    selectedUser, getDraft, saveDraft,
   } = useChatStore();
 
   // Cleanup typing timer on unmount to prevent setState on unmounted component
   useEffect(() => {
     return () => {
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     };
   }, []);
+
+  // Drafts are local per conversation: they survive navigation and refresh without database writes.
+  useEffect(() => {
+    if (!selectedUser?._id) return;
+    setText(getDraft(selectedUser._id));
+    setImagePreview(null); setFileData(null); setFilePreview(null); setFileType(null); setAudioBlob(null);
+  }, [selectedUser?._id, getDraft]);
+
+  useEffect(() => {
+    if (!selectedUser?._id) return;
+    clearTimeout(draftTimerRef.current);
+    draftTimerRef.current = setTimeout(() => saveDraft(selectedUser._id, text), 350);
+    return () => clearTimeout(draftTimerRef.current);
+  }, [text, selectedUser?._id, saveDraft]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -133,6 +150,7 @@ const MessageInput = () => {
 
     // ── INSTANT CLEAR ────────────────────────────────────────────
     setText("");
+    saveDraft(selectedUser._id, "");
     setImagePreview(null);
     setFileData(null);
     setFilePreview(null);

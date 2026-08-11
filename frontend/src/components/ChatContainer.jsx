@@ -5,13 +5,17 @@ import MessageInput from "./MessageInput";
 import MessageSkeleton from "./skeletons/MessageSkeleton";
 import { useAuthStore } from "../store/useAuthStore";
 import { formatMessageTime } from "../lib/utils";
-import { Reply, Pencil, Trash2, SmilePlus, Pin, Copy, X, ChevronDown, ArrowDown, Clock, AlertCircle, RotateCcw, Check, CheckCheck } from "lucide-react";
+import { Reply, Pencil, Trash2, SmilePlus, Pin, Copy, X, ChevronDown, ArrowDown, Clock, AlertCircle, RotateCcw, Check, CheckCheck, Forward, Star } from "lucide-react";
+import EmojiPicker from "emoji-picker-react";
 
 const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
 
-const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit, onDelete, onReact, onPin, onRetry, conversationSearchQuery }) => {
+const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit, onDelete, onReact, onPin, onStar, onForward, onRetry, conversationSearchQuery, isTarget }) => {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const menuRef = useRef(null);
+  const pointerRef = useRef(null);
+  const longPressRef = useRef(null);
   const isSending = message.status === "sending";
   const isFailed = message.status === "failed";
 
@@ -32,10 +36,31 @@ const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit
   };
 
   const replyPreview = message.replyTo;
+  const isStarred = (message.starredBy || []).some((id) => String(id?._id || id) === String(authUser._id));
+  const clearGesture = () => { clearTimeout(longPressRef.current); longPressRef.current = null; pointerRef.current = null; };
+  const onPointerDown = (event) => {
+    if (event.pointerType !== "touch") return;
+    pointerRef.current = { x: event.clientX, y: event.clientY, triggered: false };
+    longPressRef.current = setTimeout(() => {
+      if (pointerRef.current) { pointerRef.current.triggered = true; setMenuOpen(true); navigator.vibrate?.(20); }
+    }, 550);
+  };
+  const onPointerMove = (event) => {
+    const start = pointerRef.current;
+    if (!start) return;
+    const dx = event.clientX - start.x; const dy = event.clientY - start.y;
+    if (Math.abs(dy) > 12 || Math.abs(dx) > 90) { clearTimeout(longPressRef.current); longPressRef.current = null; }
+    if (!start.triggered && Math.abs(dx) > 56 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      start.triggered = true; clearTimeout(longPressRef.current); onReply(message); navigator.vibrate?.(10);
+    }
+  };
 
   return (
     <div
-      className={`group flex items-end gap-2 relative ${isOwn ? "flex-row-reverse" : "flex-row"}`}
+      data-message-id={message._id}
+      onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={clearGesture} onPointerCancel={clearGesture}
+      onContextMenu={(e) => { if (e.pointerType === "touch") e.preventDefault(); }}
+      className={`group flex items-end gap-2 relative ${isOwn ? "flex-row-reverse" : "flex-row"} ${isTarget ? "animate-pulse rounded-xl ring-2 ring-warning/70" : ""}`}
     >
       {/* Avatar */}
       <img
@@ -51,6 +76,7 @@ const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit
             <Pin className="size-3" /> <span>Pinned</span>
           </div>
         )}
+        {message.forwardedFrom && <div className="text-[11px] text-base-content/50 mb-0.5">Forwarded</div>}
 
         {/* Reply preview */}
         {replyPreview && (
@@ -126,6 +152,12 @@ const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit
             </div>
           </div>
 
+          {pickerOpen && !isSending && !isFailed && (
+            <div className={`absolute z-40 top-full mt-2 ${isOwn ? "right-0" : "left-0"}`}>
+              <EmojiPicker onEmojiClick={(emoji) => { onReact(message._id, emoji.emoji); setPickerOpen(false); }} width={300} height={360} />
+            </div>
+          )}
+
           {/* Quick Emoji Bar on Hover (positioned above bubble) */}
           <div
             className={`absolute ${isOwn ? "right-0" : "left-0"} -top-7 hidden group-hover:flex items-center gap-1 z-20`}
@@ -140,6 +172,7 @@ const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit
                   {emoji}
                 </button>
               ))}
+              <button onClick={() => setPickerOpen((open) => !open)} className="text-sm px-0.5" aria-label="More reactions"><SmilePlus className="size-3.5" /></button>
             </div>
           </div>
         </div>
@@ -172,11 +205,11 @@ const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit
 
       {/* Message Context Menu */}
       <div
-        className="self-center opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+        className={`self-center transition-opacity flex-shrink-0 ${menuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
         ref={menuRef}
       >
         <div className="dropdown dropdown-end">
-          <button className="btn btn-ghost btn-xs btn-circle" tabIndex={0} aria-label="Message options">
+          <button className="btn btn-ghost btn-xs btn-circle" tabIndex={0} onClick={() => setMenuOpen((open) => !open)} aria-label="Message options">
             <ChevronDown className="size-3.5" />
           </button>
           <ul className="dropdown-content z-30 menu p-1 shadow-lg bg-base-100 rounded-xl border border-base-300 w-36 text-sm">
@@ -185,6 +218,8 @@ const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit
                 <Reply className="size-3.5" /> Reply
               </button>
             </li>
+            <li><button className="flex items-center gap-2" onClick={() => { setPickerOpen(true); setMenuOpen(false); }}><SmilePlus className="size-3.5" /> React</button></li>
+            <li><button className="flex items-center gap-2" onClick={() => { onForward(message); setMenuOpen(false); }}><Forward className="size-3.5" /> Forward</button></li>
             {isOwn && (
               <li>
                 <button className="flex items-center gap-2" onClick={() => onEdit(message)}>
@@ -200,6 +235,7 @@ const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit
                 <Copy className="size-3.5" /> Copy
               </button>
             </li>
+            <li><button className="flex items-center gap-2" onClick={() => { onStar(message._id); setMenuOpen(false); }}><Star className="size-3.5" fill={isStarred ? "currentColor" : "none"} /> {isStarred ? "Unstar" : "Star"}</button></li>
             <li>
               <button className="flex items-center gap-2" onClick={() => onPin(message._id)}>
                 <Pin className="size-3.5" /> {message.isPinned ? "Unpin" : "Pin"}
@@ -224,8 +260,9 @@ const ChatContainer = () => {
     messages, getMessages, isMessagesLoading,
     selectedUser, subscribeToMessages, unsubscribeFromMessages,
     editMessage, deleteMessage, reactToMessage, togglePinMessage,
-    setReplyToMessage, replyToMessage, retrySendMessage,
-    conversationSearchQuery,
+    setReplyToMessage, retrySendMessage,
+    conversationSearchQuery, toggleStarMessage, forwardMessage, users,
+    navigationTargetMessageId, clearNavigationTarget,
   } = useChatStore();
   const { authUser } = useAuthStore();
 
@@ -237,6 +274,8 @@ const ChatContainer = () => {
   const [hasNewMessagesBelow, setHasNewMessagesBelow] = useState(false);
   const [editingMessage, setEditingMessage] = useState(null);
   const [editText, setEditText] = useState("");
+  const [forwardingMessage, setForwardingMessage] = useState(null);
+  const [forwardTargets, setForwardTargets] = useState([]);
 
   // Scroll helper
   const scrollToBottom = useCallback((behavior = "smooth") => {
@@ -309,6 +348,12 @@ const ChatContainer = () => {
     prevMessagesLengthRef.current = messages.length;
   }, [messages, authUser._id, isAtBottom, scrollToBottom]);
 
+  useEffect(() => {
+    if (!navigationTargetMessageId || !messages.length) return;
+    const element = messagesContainerRef.current?.querySelector(`[data-message-id="${navigationTargetMessageId}"]`);
+    if (element) { element.scrollIntoView({ block: "center", behavior: "smooth" }); clearNavigationTarget(); }
+  }, [navigationTargetMessageId, messages, clearNavigationTarget]);
+
   const pinnedMessages = messages.filter((m) => m.isPinned);
 
   const filteredMessages = conversationSearchQuery
@@ -378,7 +423,7 @@ const ChatContainer = () => {
       >
         {filteredMessages.length === 0 && conversationSearchQuery ? (
           <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
-            <p className="text-sm text-base-content/50">No messages match "{conversationSearchQuery}"</p>
+            <p className="text-sm text-base-content/50">No messages match &quot;{conversationSearchQuery}&quot;</p>
           </div>
         ) : (
           filteredMessages.map((message) => (
@@ -397,7 +442,10 @@ const ChatContainer = () => {
               onDelete={(id) => deleteMessage(id)}
               onReact={(id, emoji) => reactToMessage(id, emoji)}
               onPin={(id) => togglePinMessage(id)}
+              onStar={(id) => toggleStarMessage(id)}
+              onForward={(message) => { setForwardingMessage(message); setForwardTargets([]); }}
               onRetry={(msg) => retrySendMessage(msg)}
+              isTarget={navigationTargetMessageId === message._id}
             />
           ))
         )}
@@ -427,6 +475,21 @@ const ChatContainer = () => {
       <div className="flex-shrink-0 z-20 bg-base-100">
         <MessageInput />
       </div>
+
+      {forwardingMessage && (
+        <div className="absolute inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-3" onClick={() => setForwardingMessage(null)}>
+          <div className="bg-base-100 rounded-2xl shadow-2xl w-full max-w-md max-h-[75%] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="p-4 border-b border-base-300 flex items-center justify-between"><div><p className="font-semibold">Forward message</p><p className="text-xs text-base-content/55 truncate max-w-[280px]">{forwardingMessage.text || "Attachment"}</p></div><button className="btn btn-ghost btn-sm btn-circle" onClick={() => setForwardingMessage(null)}><X className="size-4" /></button></div>
+            <div className="overflow-y-auto p-2 flex-1">
+              {users.filter((user) => String(user._id) !== String(authUser._id)).map((user) => {
+                const checked = forwardTargets.includes(user._id);
+                return <label key={user._id} className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-base-200 cursor-pointer"><input type="checkbox" className="checkbox checkbox-primary checkbox-sm" checked={checked} onChange={() => setForwardTargets((current) => checked ? current.filter((id) => id !== user._id) : [...current, user._id])} /><img src={user.profilePic || "/avatar.png"} className="size-9 rounded-full object-cover" /><span className="text-sm">{user.fullName}</span></label>;
+              })}
+            </div>
+            <div className="p-3 border-t border-base-300 flex justify-end gap-2"><button className="btn btn-ghost btn-sm" onClick={() => setForwardingMessage(null)}>Cancel</button><button disabled={!forwardTargets.length} className="btn btn-primary btn-sm" onClick={async () => { try { await forwardMessage(forwardingMessage, forwardTargets); setForwardingMessage(null); } catch { /* toast is raised by the store */ } }}>Forward{forwardTargets.length ? ` (${forwardTargets.length})` : ""}</button></div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
