@@ -30,6 +30,7 @@ const MessageInput = () => {
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const typingTimerRef = useRef(null);
+  const isSendingRef = useRef(false); // Prevent double-submit
 
   const {
     sendMessage,
@@ -106,39 +107,65 @@ const MessageInput = () => {
 
   const handleSendMessage = async (e) => {
     e?.preventDefault();
+
+    // Guard: prevent double-submit from rapid clicks or Enter key
+    if (isSendingRef.current) return;
     if (!text.trim() && !imagePreview && !fileData && !audioBlob) return;
 
+    isSendingRef.current = true;
     emitStopTyping();
+
+    // Capture current values before clearing
+    const currentText = text.trim();
+    const currentImage = imagePreview;
+    const currentFileData = fileData;
+    const currentFilePreview = filePreview;
+    const currentFileType = fileType;
+    const currentAudioBlob = audioBlob;
+    const currentReplyTo = replyToMessage?._id;
+
+    // ── INSTANT CLEAR ────────────────────────────────────────────
+    // Clear input state immediately so the UI feels instant.
+    // sendMessage() is fired in the background — no awaiting here.
+    setText("");
+    setImagePreview(null);
+    setFileData(null);
+    setFilePreview(null);
+    setFileType(null);
+    setAudioBlob(null);
+    clearReplyToMessage();
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (docInputRef.current) docInputRef.current.value = "";
+
+    // ── KEEP KEYBOARD OPEN ────────────────────────────────────────
+    // Re-focus textarea immediately so the mobile keyboard stays up.
+    // This must happen synchronously in the same event tick.
+    textareaRef.current?.focus();
 
     try {
       let audioBase64 = null;
-      if (audioBlob) {
+      if (currentAudioBlob) {
         audioBase64 = await new Promise((resolve) => {
           const reader = new FileReader();
           reader.onloadend = () => resolve(reader.result);
-          reader.readAsDataURL(audioBlob);
+          reader.readAsDataURL(currentAudioBlob);
         });
       }
 
+      // sendMessage() handles optimistic insertion + backend call
       await sendMessage({
-        text: text.trim(),
-        image: imagePreview || undefined,
-        file: fileData || audioBase64 || undefined,
-        fileType: audioBlob ? "audio" : fileType || undefined,
-        replyTo: replyToMessage?._id || undefined,
+        text: currentText,
+        image: currentImage || undefined,
+        file: currentFileData || audioBase64 || undefined,
+        fileType: currentAudioBlob ? "audio" : currentFileType || undefined,
+        replyTo: currentReplyTo || undefined,
       });
-
-      setText("");
-      setImagePreview(null);
-      setFileData(null);
-      setFilePreview(null);
-      setFileType(null);
-      setAudioBlob(null);
-      clearReplyToMessage();
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      if (docInputRef.current) docInputRef.current.value = "";
     } catch (error) {
       console.error("Failed to send message:", error);
+    } finally {
+      isSendingRef.current = false;
+      // Restore focus after async work completes
+      textareaRef.current?.focus();
     }
   };
 
@@ -273,9 +300,10 @@ const MessageInput = () => {
           {isRecording ? <MicOff className="size-4" /> : <Mic className="size-4" />}
         </button>
 
-        {/* Send Button */}
+        {/* Send Button — onMouseDown preventDefault prevents focus loss on mobile */}
         <button
-          type="submit"
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
           onClick={handleSendMessage}
           disabled={!text.trim() && !imagePreview && !fileData && !audioBlob}
           className="btn btn-primary btn-sm btn-circle flex-shrink-0"

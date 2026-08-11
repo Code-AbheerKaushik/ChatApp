@@ -5,13 +5,15 @@ import MessageInput from "./MessageInput";
 import MessageSkeleton from "./skeletons/MessageSkeleton";
 import { useAuthStore } from "../store/useAuthStore";
 import { formatMessageTime } from "../lib/utils";
-import { Reply, Pencil, Trash2, SmilePlus, Pin, Copy, X, ChevronDown, ArrowDown } from "lucide-react";
+import { Reply, Pencil, Trash2, SmilePlus, Pin, Copy, X, ChevronDown, ArrowDown, Clock, AlertCircle, RotateCcw, Check } from "lucide-react";
 
 const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
 
-const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit, onDelete, onReact, onPin, conversationSearchQuery }) => {
+const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit, onDelete, onReact, onPin, onRetry, conversationSearchQuery }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
+  const isSending = message.status === "sending";
+  const isFailed = message.status === "failed";
 
   // Group reactions by emoji
   const reactionGroups = (message.reactions || []).reduce((acc, r) => {
@@ -94,13 +96,20 @@ const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit
               <p className="text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere] leading-relaxed">{highlight(message.text)}</p>
             )}
 
-            {/* Timestamp + edited */}
+            {/* Timestamp + status + edited */}
             <div className={`flex items-center gap-1 mt-0.5 ${isOwn ? "justify-end" : "justify-start"}`}>
               <time className={`text-[10px] ${isOwn ? "text-primary-content/70" : "text-base-content/50"}`}>
                 {formatMessageTime(message.createdAt)}
               </time>
               {message.edited && (
                 <span className={`text-[10px] italic ${isOwn ? "text-primary-content/60" : "text-base-content/40"}`}>edited</span>
+              )}
+              {/* Sending / Failed status indicators for own messages */}
+              {isOwn && isSending && (
+                <Clock className="size-3 text-primary-content/50 animate-pulse" aria-label="Sending..." />
+              )}
+              {isOwn && isFailed && (
+                <AlertCircle className="size-3 text-error" aria-label="Failed to send" />
               )}
             </div>
           </div>
@@ -129,13 +138,23 @@ const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit
             {Object.entries(reactionGroups).map(([emoji, count]) => (
               <button
                 key={emoji}
-                onClick={() => onReact(message._id, emoji)}
+                onClick={() => !isSending && !isFailed && onReact(message._id, emoji)}
                 className="bg-base-200 hover:bg-base-300 rounded-full px-2 py-0.5 text-xs flex items-center gap-1 transition-colors border border-base-300"
               >
                 {emoji} <span className="text-base-content/60">{count}</span>
               </button>
             ))}
           </div>
+        )}
+
+        {/* Failed message retry button */}
+        {isOwn && isFailed && (
+          <button
+            onClick={() => onRetry(message)}
+            className="mt-1 flex items-center gap-1 text-[11px] text-error hover:text-error/80 transition-colors"
+          >
+            <RotateCcw className="size-3" /> Tap to retry
+          </button>
         )}
       </div>
 
@@ -193,7 +212,7 @@ const ChatContainer = () => {
     messages, getMessages, isMessagesLoading,
     selectedUser, subscribeToMessages, unsubscribeFromMessages,
     editMessage, deleteMessage, reactToMessage, togglePinMessage,
-    setReplyToMessage, replyToMessage,
+    setReplyToMessage, replyToMessage, retrySendMessage,
     conversationSearchQuery,
   } = useChatStore();
   const { authUser } = useAuthStore();
@@ -260,7 +279,10 @@ const ChatContainer = () => {
 
     const isNewMessage = messages.length > prevMessagesLengthRef.current;
     const lastMessage = messages[messages.length - 1];
-    const isOwnMessage = lastMessage?.senderId === authUser._id;
+    // isOwnMessage: check by senderId OR by clientMessageId optimistic message
+    const isOwnMessage =
+      lastMessage?.senderId === authUser._id ||
+      lastMessage?.senderId?.toString() === authUser._id?.toString();
 
     if (isNewMessage) {
       if (isAtBottom || isOwnMessage) {
@@ -349,9 +371,12 @@ const ChatContainer = () => {
         ) : (
           filteredMessages.map((message) => (
             <MessageBubble
-              key={message._id}
+              key={message._id || message.clientMessageId}
               message={message}
-              isOwn={message.senderId === authUser._id}
+              isOwn={
+                message.senderId === authUser._id ||
+                message.senderId?.toString() === authUser._id?.toString()
+              }
               authUser={authUser}
               selectedUser={selectedUser}
               conversationSearchQuery={conversationSearchQuery}
@@ -360,6 +385,7 @@ const ChatContainer = () => {
               onDelete={(id) => deleteMessage(id)}
               onReact={(id, emoji) => reactToMessage(id, emoji)}
               onPin={(id) => togglePinMessage(id)}
+              onRetry={(msg) => retrySendMessage(msg)}
             />
           ))
         )}

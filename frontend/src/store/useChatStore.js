@@ -10,6 +10,32 @@ const loadLocal = (key, fallback = []) => {
 };
 const saveLocal = (key, value) => localStorage.setItem(key, JSON.stringify(value));
 
+// Generate a unique client-side message ID for idempotency
+const generateClientMessageId = () =>
+  `cmid_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+
+// Optimistically compute reactions for a message without waiting for server
+const applyOptimisticReaction = (message, userId, emoji) => {
+  const reactions = [...(message.reactions || [])];
+  const existingIdx = reactions.findIndex(
+    (r) => String(r.userId) === String(userId) || (r.userId?._id && String(r.userId._id) === String(userId))
+  );
+
+  if (existingIdx > -1) {
+    if (reactions[existingIdx].emoji === emoji) {
+      // Toggle off same emoji
+      reactions.splice(existingIdx, 1);
+    } else {
+      // Change to new emoji
+      reactions[existingIdx] = { ...reactions[existingIdx], emoji };
+    }
+  } else {
+    // Add new reaction
+    reactions.push({ userId, emoji, _id: `opt_${Date.now()}` });
+  }
+  return { ...message, reactions };
+};
+
 export const useChatStore = create((set, get) => ({
   messages: [],
   users: [],
@@ -37,6 +63,9 @@ export const useChatStore = create((set, get) => ({
   // --- Conversation search ---
   conversationSearchQuery: "",
   conversationSearchOpen: false,
+
+  // --- In-flight reaction locks (prevent rapid duplicate calls) ---
+  _reactionInFlight: {}, // { messageId: emoji }
 
   setSearchQuery: (q) => set({ searchQuery: q }),
   setActiveFilter: (f) => set({ activeFilter: f }),
@@ -112,19 +141,129 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
+  // --- Optimistic sendMessage ---
   sendMessage: async (messageData) => {
-    const { selectedUser, messages } = get();
+    const { selectedUser } = get();
+    const authUser = useAuthStore.getState().authUser;
+
+    // Generate idempotency key
+    const clientMessageId = generateClientMessageId();
+
+    // Build optimistic message to show instantly
+    const optimisticMsg = {
+      _id: clientMessageId,           // Temporary local ID
+      clientMessageId,
+      senderId: authUser._id,
+      receiverId: selectedUser._id,
+      text: messageData.text || null,
+      image: messageData.image ? messageData.image : null, // local data URL for preview
+      file: messageData.file ? messageData.file : null,
+      fileType: messageData.fileType || null,
+      replyTo: get().replyToMessage || null,
+      reactions: [],
+      createdAt: new Date().toISOString(),
+      status: "sending",             // optimistic status
+    };
+
+    // Immediately add optimistic message to state
+    set((state) => ({
+      messages: [...state.messages, optimisticMsg],
+      users: state.users.map(u =>
+        u._id === selectedUser._id ? { ...u, lastMessage: optimisticMsg } : u
+      ),
+    }));
+
     try {
-      const res = await axiosInstance.post(`/messages/send/${selectedUser._id}`, messageData);
-      set({ messages: [...messages, res.data] });
-      // Update last message on user card
-      set((state) => ({
-        users: state.users.map(u =>
-          u._id === selectedUser._id ? { ...u, lastMessage: res.data } : u
-        )
-      }));
+      const payload = { ...messageData, clientMessageId };
+      const res = await axiosInstance.post(`/messages/send/${selectedUser._id}`, payload);
+      const serverMsg = { ...res.data, status: "sent" };
+
+      // Replace optimistic message with server-confirmed message, matching by clientMessageId
+      set((state) => {
+        // Deduplicate: don't add if the real _id already exists (socket may have delivered it)
+        const alreadyHasReal = state.messages.some(
+          (m) => m._id === serverMsg._id && m._id !== clientMessageId
+        );
+        if (alreadyHasReal) {
+          // Just remove the optimistic placeholder
+          return {
+            messages: state.messages.filter((m) => m._id !== clientMessageId),
+            users: state.users.map(u =>
+              u._id === selectedUser._id ? { ...u, lastMessage: serverMsg } : u
+            ),
+          };
+        }
+        return {
+          messages: state.messages.map((m) =>
+            m._id === clientMessageId ? serverMsg : m
+          ),
+          users: state.users.map(u =>
+            u._id === selectedUser._id ? { ...u, lastMessage: serverMsg } : u
+          ),
+        };
+      });
     } catch (error) {
-      toast.error(error.response?.data?.message || "Failed to send message");
+      // Mark optimistic message as failed
+      set((state) => ({
+        messages: state.messages.map((m) =>
+          m._id === clientMessageId ? { ...m, status: "failed" } : m
+        ),
+      }));
+      toast.error("Failed to send — tap to retry");
+    }
+  },
+
+  // --- Retry a failed message ---
+  retrySendMessage: async (failedMessage) => {
+    const { selectedUser } = get();
+
+    // Mark as sending again
+    set((state) => ({
+      messages: state.messages.map((m) =>
+        m._id === failedMessage._id ? { ...m, status: "sending" } : m
+      ),
+    }));
+
+    try {
+      const payload = {
+        text: failedMessage.text,
+        image: failedMessage.image,
+        file: failedMessage.file,
+        fileType: failedMessage.fileType,
+        replyTo: failedMessage.replyTo?._id || failedMessage.replyTo || undefined,
+        clientMessageId: failedMessage.clientMessageId, // Same ID = idempotency on backend
+      };
+      const res = await axiosInstance.post(`/messages/send/${selectedUser._id}`, payload);
+      const serverMsg = { ...res.data, status: "sent" };
+
+      set((state) => {
+        const alreadyHasReal = state.messages.some(
+          (m) => m._id === serverMsg._id && m._id !== failedMessage._id
+        );
+        if (alreadyHasReal) {
+          return {
+            messages: state.messages.filter((m) => m._id !== failedMessage._id),
+            users: state.users.map(u =>
+              u._id === selectedUser._id ? { ...u, lastMessage: serverMsg } : u
+            ),
+          };
+        }
+        return {
+          messages: state.messages.map((m) =>
+            m._id === failedMessage._id ? serverMsg : m
+          ),
+          users: state.users.map(u =>
+            u._id === selectedUser._id ? { ...u, lastMessage: serverMsg } : u
+          ),
+        };
+      });
+    } catch (error) {
+      set((state) => ({
+        messages: state.messages.map((m) =>
+          m._id === failedMessage._id ? { ...m, status: "failed" } : m
+        ),
+      }));
+      toast.error("Retry failed — check your connection");
     }
   },
 
@@ -150,14 +289,47 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
+  // --- Optimistic reactToMessage ---
   reactToMessage: async (messageId, emoji) => {
+    const authUser = useAuthStore.getState().authUser;
+    const { _reactionInFlight } = get();
+
+    // Deduplicate in-flight reactions for the same message + emoji
+    if (_reactionInFlight[messageId] === emoji) return;
+
+    // Save snapshot for rollback
+    const snapshot = get().messages;
+
+    // Apply optimistic update immediately
+    set((state) => ({
+      _reactionInFlight: { ...state._reactionInFlight, [messageId]: emoji },
+      messages: state.messages.map((m) =>
+        m._id === messageId ? applyOptimisticReaction(m, authUser._id, emoji) : m
+      ),
+    }));
+
     try {
       const res = await axiosInstance.post(`/messages/react/${messageId}`, { emoji });
-      set((state) => ({
-        messages: state.messages.map(m => m._id === messageId ? res.data : m)
-      }));
+      // Reconcile with server truth
+      set((state) => {
+        const nextInFlight = { ...state._reactionInFlight };
+        delete nextInFlight[messageId];
+        return {
+          _reactionInFlight: nextInFlight,
+          messages: state.messages.map((m) => m._id === messageId ? res.data : m),
+        };
+      });
     } catch (error) {
-      toast.error(error.response?.data?.message || "Failed to react");
+      // Rollback to snapshot
+      set((state) => {
+        const nextInFlight = { ...state._reactionInFlight };
+        delete nextInFlight[messageId];
+        return {
+          _reactionInFlight: nextInFlight,
+          messages: snapshot,
+        };
+      });
+      toast.error("Failed to react — try again");
     }
   },
 
@@ -179,10 +351,20 @@ export const useChatStore = create((set, get) => ({
 
     const socket = useAuthStore.getState().socket;
 
+    // Always clean up existing listeners before re-subscribing to avoid duplicates
+    socket.off("newMessage");
+    socket.off("messageEdited");
+    socket.off("messageDeleted");
+    socket.off("messageReaction");
+    socket.off("messagePinned");
+    socket.off("typing");
+    socket.off("stopTyping");
+
     socket.on("newMessage", (newMessage) => {
       const isFromSelectedUser =
         newMessage.senderId === selectedUser._id ||
         newMessage.receiverId === selectedUser._id;
+
       if (!isFromSelectedUser) {
         // Mark sender as unread when not in conversation
         get().markUnread(newMessage.senderId);
@@ -194,12 +376,38 @@ export const useChatStore = create((set, get) => ({
         }));
         return;
       }
-      set({ messages: [...get().messages, newMessage] });
-      set((state) => ({
-        users: state.users.map(u =>
-          u._id === selectedUser._id ? { ...u, lastMessage: newMessage } : u
-        )
-      }));
+
+      set((state) => {
+        const msgs = state.messages;
+
+        // Deduplication: if message with this _id already in state, skip
+        if (msgs.some((m) => m._id === newMessage._id)) return {};
+
+        // Deduplication by clientMessageId: replace optimistic placeholder if found
+        if (newMessage.clientMessageId) {
+          const optimisticIdx = msgs.findIndex(
+            (m) => m.clientMessageId === newMessage.clientMessageId
+          );
+          if (optimisticIdx > -1) {
+            const updatedMsgs = [...msgs];
+            updatedMsgs[optimisticIdx] = { ...newMessage, status: "sent" };
+            return {
+              messages: updatedMsgs,
+              users: state.users.map(u =>
+                u._id === selectedUser._id ? { ...u, lastMessage: newMessage } : u
+              ),
+            };
+          }
+        }
+
+        // Brand new incoming message
+        return {
+          messages: [...msgs, { ...newMessage, status: "sent" }],
+          users: state.users.map(u =>
+            u._id === selectedUser._id ? { ...u, lastMessage: newMessage } : u
+          ),
+        };
+      });
     });
 
     socket.on("messageEdited", (updatedMsg) => {
@@ -277,6 +485,7 @@ export const useChatStore = create((set, get) => ({
     socket.off("messagePinned");
     socket.off("typing");
     socket.off("stopTyping");
+    socket.off("userProfileUpdated");
   },
 
   // Emit typing indicator

@@ -53,9 +53,17 @@ export const getMessages = async (req, res) => {
 
 export const sendMessage = async (req, res) => {
   try {
-    const { text, image, file, fileType, replyTo } = req.body;
+    const { text, image, file, fileType, replyTo, clientMessageId } = req.body;
     const { id: receiverId } = req.params;
     const senderId = req.user._id;
+
+    // Idempotency check: if message with this clientMessageId already exists, return it directly
+    if (clientMessageId) {
+      const existingMessage = await Message.findOne({ senderId, clientMessageId }).populate("replyTo");
+      if (existingMessage) {
+        return res.status(200).json(existingMessage);
+      }
+    }
 
     let imageUrl;
     if (image) {
@@ -81,6 +89,7 @@ export const sendMessage = async (req, res) => {
       file: fileUrl,
       fileType,
       replyTo: replyTo || null,
+      clientMessageId: clientMessageId || null,
     });
 
     await newMessage.save();

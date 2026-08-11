@@ -42,6 +42,10 @@ const messageSchema = new mongoose.Schema(
         },
       },
     ],
+    clientMessageId: {
+      type: String,
+      index: true,
+    },
     edited: {
       type: Boolean,
       default: false,
