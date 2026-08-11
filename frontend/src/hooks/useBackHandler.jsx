@@ -5,12 +5,14 @@ import { useChatStore } from "../store/useChatStore";
 import { useGroupStore } from "../store/useGroupStore";
 
 // ─── Exit Confirmation Dialog ─────────────────────────────────────────────────
-// Matches the app's design system (daisyUI base tokens). Mobile-friendly,
-// accessible, prevents interaction with the page behind it.
+// Mobile-friendly, accessible dialog matching DaisyUI base tokens.
+// Prevents interaction with the Home page behind it while open.
 const ExitConfirmDialog = ({ isOpen, onCancel, onExit }) => {
   useEffect(() => {
     if (!isOpen) return;
-    const onKey = (e) => { if (e.key === "Escape") onCancel(); };
+    const onKey = (e) => {
+      if (e.key === "Escape") onCancel();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [isOpen, onCancel]);
@@ -19,15 +21,16 @@ const ExitConfirmDialog = ({ isOpen, onCancel, onExit }) => {
 
   return (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
-      style={{ backgroundColor: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
+      id="exit-confirm-dialog-overlay"
+      className="fixed inset-0 z-[99999] flex items-center justify-center p-4"
+      style={{ backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
       onClick={onCancel}
       role="dialog"
       aria-modal="true"
       aria-labelledby="exit-dlg-title"
     >
       <div
-        className="bg-base-100 rounded-3xl shadow-2xl w-full max-w-xs overflow-hidden"
+        className="bg-base-100 rounded-3xl shadow-2xl w-full max-w-xs overflow-hidden animate-in fade-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex flex-col items-center pt-8 pb-4 px-6">
@@ -38,7 +41,7 @@ const ExitConfirmDialog = ({ isOpen, onCancel, onExit }) => {
             Exit App?
           </h2>
           <p className="text-sm text-base-content/60 text-center leading-snug">
-            Are you sure you want to leave?
+            Are you sure you want to exit the application?
           </p>
         </div>
 
@@ -65,121 +68,132 @@ const ExitConfirmDialog = ({ isOpen, onCancel, onExit }) => {
 };
 
 // ─── useBackHandler ───────────────────────────────────────────────────────────
+// Single, centralized source of truth for Back-button navigation.
 //
-// Works with <BrowserRouter> (no data-router required).
-//
-// State machine:
-//
-//   IDLE  ──back at root, hasNavigatedAway=false──▶  BLOCKING
-//   IDLE  ──back at root, hasNavigatedAway=true ──▶  (transparent, stay home)
-//   BLOCKING ──Cancel──▶  IDLE
-//   BLOCKING ──Exit  ──▶  browser exits naturally
-//
-// How it works step by step:
-//   1. On mount, push ONE sentinel entry so back-press fires popstate instead
-//      of immediately leaving the browser session.
-//   2. popstate handler:
-//      a. Chat/group open → close panel, re-push sentinel.
-//      b. On inner page → re-push sentinel (React Router will navigate to /).
-//      c. At root, user navigated away before → "return to home" — transparent.
-//      d. At root, user was here all along → push sentinel, show exit dialog.
-//   3. Exit clicked → set skip flag, go(-1) to pop the latest sentinel,
-//      popstate fires → skip flag → no new sentinel → browser exits.
-//   4. Cancel clicked → just close dialog, existing sentinel stays.
-//
-// ONE popstate listener. No duplicate dialogs. No arbitrary timeouts.
-// No window.close(). No useBlocker (which requires a data router).
+// Decision Flow on Back Press:
+// 1. If Keyboard / Active Input is open → Blur input, stop processing.
+// 2. If Modal / Popup / Mobile Chat View is open → Close UI overlay, stop.
+// 3. If Current Page is NOT Home ("/") → Navigate back immediately, stop.
+// 4. If Current Page IS Home ("/") → Immediately show Exit Confirmation Dialog.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const SENTINEL_KEY = "_appBackBlocker";
+const HOME_PATH = "/";
+const SENTINEL_KEY = "_appHomeSentinel";
 
 export const useBackHandler = () => {
   const location = useLocation();
   const [showExitDialog, setShowExitDialog] = useState(false);
 
-  // True if the user has navigated to any inner page (/profile, /settings, etc.)
-  // since arriving at root. Used to distinguish "back from inner page" vs "exit".
-  const hasNavigatedAway = useRef(false);
+  // Ref tracking current pathname BEFORE popstate handling
+  const currentPathRef = useRef(location.pathname);
 
-  // When true, the next popstate event should NOT push a new sentinel (exit flow).
-  const skipNextIntercept = useRef(false);
-
-  // Guards against StrictMode double-invoke pushing sentinel twice.
-  const sentinelPushed = useRef(false);
-
-  // Track inner-page navigation via location changes
+  // Synchronously update currentPathRef whenever location changes
   useEffect(() => {
-    if (location.pathname !== "/") {
-      hasNavigatedAway.current = true;
+    currentPathRef.current = location.pathname;
+  }, [location.pathname]);
+
+  // Push sentinel history state on Home mount so back press on Home is intercepted
+  useEffect(() => {
+    if (location.pathname === HOME_PATH && !window.history.state?.[SENTINEL_KEY]) {
+      window.history.pushState({ [SENTINEL_KEY]: true }, "", window.location.href);
     }
   }, [location.pathname]);
 
-  // Main back-button interception — registered once on mount
-  useEffect(() => {
-    if (!sentinelPushed.current) {
-      sentinelPushed.current = true;
-      window.history.pushState({ [SENTINEL_KEY]: true }, "", window.location.href);
+  // Helper: Check and handle open keyboard or UI overlays (modals, lightboxes, mobile chats)
+  const checkAndCloseOverlay = useCallback(() => {
+    // 1. Keyboard / Active text input focus
+    const activeEl = document.activeElement;
+    if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || activeEl.isContentEditable)) {
+      activeEl.blur();
+      return true;
     }
 
-    const handlePopState = () => {
-      // ── Exit flow: let the browser navigate away naturally ─────────────
-      if (skipNextIntercept.current) {
-        skipNextIntercept.current = false;
+    // 2. Mobile chat view (selected user or selected group)
+    const { selectedUser, setSelectedUser } = useChatStore.getState();
+    const { selectedGroup, setSelectedGroup, createGroupModalOpen, setCreateGroupModalOpen, groupSettingsModalOpen, setGroupSettingsModalOpen } = useGroupStore.getState();
+
+    if (selectedUser) {
+      setSelectedUser(null);
+      return true;
+    }
+    if (selectedGroup) {
+      setSelectedGroup(null);
+      return true;
+    }
+    if (createGroupModalOpen) {
+      setCreateGroupModalOpen(false);
+      return true;
+    }
+    if (groupSettingsModalOpen) {
+      setGroupSettingsModalOpen(false);
+      return true;
+    }
+
+    // 3. Open DOM Modals / Lightboxes (elements with fixed inset-0 overlay excluding exit dialog)
+    const openOverlay = document.querySelector(
+      ".fixed.inset-0:not(#exit-confirm-dialog-overlay)"
+    );
+    if (openOverlay) {
+      // Dispatch Escape key event to trigger active modal close listeners
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, bubbles: true }));
+      return true;
+    }
+
+    return false;
+  }, []);
+
+  // Main Back listener (registered once)
+  useEffect(() => {
+    const handlePopState = (e) => {
+      const pageBeforeBack = currentPathRef.current;
+
+      // ── Step 1 & 2: Check Keyboard or Open UI Overlays ──────────────────
+      const overlayWasClosed = checkAndCloseOverlay();
+      if (overlayWasClosed) {
+        // Re-push sentinel if on Home so future back presses are still intercepted
+        if (pageBeforeBack === HOME_PATH) {
+          window.history.pushState({ [SENTINEL_KEY]: true }, "", window.location.href);
+        }
         return;
       }
 
-      const { selectedUser, setSelectedUser } = useChatStore.getState();
-      const { selectedGroup, setSelectedGroup } = useGroupStore.getState();
-      const path = window.location.pathname;
-
-      // ── Priority 1: close mobile chat/group slide-in panel ─────────────
-      if (selectedUser || selectedGroup) {
-        window.history.pushState({ [SENTINEL_KEY]: true }, "", window.location.href);
-        setSelectedUser(null);
-        setSelectedGroup(null);
+      // ── Step 3: Inner Page Case (pageBeforeBack !== "/") ─────────────────
+      // If user was on an inner page (Profile, Settings, User Detail, etc.),
+      // allow natural browser/router back navigation. DO NOT show exit prompt.
+      if (pageBeforeBack !== HOME_PATH) {
         return;
       }
 
-      // ── Priority 2: inner page — React Router will render the route ─────
-      // Re-push sentinel so future back presses are still intercepted.
-      if (path !== "/") {
-        window.history.pushState({ [SENTINEL_KEY]: true }, "", window.location.href);
-        return;
-      }
-
-      // ── At root "/" ─────────────────────────────────────────────────────
-      if (hasNavigatedAway.current) {
-        // User came back from an inner page — transparent return to home.
-        hasNavigatedAway.current = false;
-        window.history.pushState({ [SENTINEL_KEY]: true }, "", window.location.href);
-        return;
-      }
-
-      // User was already at root with no inner-page history — show exit dialog.
-      // Push sentinel to hold position while dialog is open.
+      // ── Step 4: Home Page Case (pageBeforeBack === "/") ──────────────────
+      // User was already on Home with no overlays open. Show Exit Dialog.
+      // Re-push sentinel to prevent immediate browser exit while dialog is open.
       window.history.pushState({ [SENTINEL_KEY]: true }, "", window.location.href);
       setShowExitDialog(true);
     };
 
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, []); // Empty deps — reads store and refs, no stale closures
+  }, [checkAndCloseOverlay]);
 
+  // Dialog actions
   const handleCancel = useCallback(() => {
-    // Sentinel is already in history from when we showed the dialog.
-    // Just close dialog; user stays at home.
     setShowExitDialog(false);
   }, []);
 
   const handleExit = useCallback(() => {
     setShowExitDialog(false);
-    // Tell the handler to skip the next popstate (don't push a new sentinel).
-    skipNextIntercept.current = true;
-    // Pop the sentinel we pushed when showing the dialog.
-    // popstate will fire → skipNextIntercept=true → handler returns early →
-    // browser is now one step back (the pre-dialog history entry) and will
-    // exit the app on the next natural back press / navigation.
-    window.history.go(-1);
+    // Platform-supported app exit
+    if (window.Capacitor?.Plugins?.App?.exitApp) {
+      window.Capacitor.Plugins.App.exitApp();
+    } else if (navigator.app && navigator.app.exitApp) {
+      navigator.app.exitApp();
+    } else {
+      try {
+        window.close();
+      } catch (err) {
+        console.log("Browser window close prevented", err);
+      }
+    }
   }, []);
 
   return {
