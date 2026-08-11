@@ -487,14 +487,11 @@ export const useChatStore = create((set, get) => ({
   },
 
   // --- Socket subscriptions ---
-  subscribeToMessages: () => {
-    const { selectedUser } = get();
-    if (!selectedUser) return;
+  // --- Persistent Global Socket Subscriptions ---
+  initGlobalSocketListeners: (socket) => {
+    if (!socket) return;
 
-    const socket = useAuthStore.getState().socket;
-    if (!socket) return; // Guard: socket may not be connected yet
-
-    // Always clean up existing listeners before re-subscribing to avoid duplicates
+    // Clean up existing listeners to ensure idempotency and prevent duplicates on reconnect
     socket.off("newMessage");
     socket.off("messageEdited");
     socket.off("messageDeleted");
@@ -502,113 +499,185 @@ export const useChatStore = create((set, get) => ({
     socket.off("messagePinned");
     socket.off("typing");
     socket.off("stopTyping");
+    socket.off("userProfileUpdated");
+    socket.off("messagesDelivered");
+    socket.off("messagesRead");
+    socket.off("messageExpired");
+    socket.off("groupMessageExpired");
+    socket.off("newGroupMessage");
+    socket.off("newGroupCreated");
+    socket.off("groupUpdated");
 
-    const selectedUserId = String(selectedUser._id);
+    // Message ID deduplication set to guarantee idempotent processing
+    const processedMsgIds = new Set();
 
     socket.on("newMessage", (newMessage) => {
+      if (!newMessage || !newMessage._id) return;
+      const authUser = useAuthStore.getState().authUser;
+      if (!authUser) return;
+
+      const authUserId = String(authUser._id);
       const msgSenderId = String(newMessage.senderId?._id ?? newMessage.senderId);
       const msgReceiverId = String(newMessage.receiverId?._id ?? newMessage.receiverId);
-      const authUserId = String(useAuthStore.getState().authUser?._id || "");
 
-      // Play in-app notification sound for incoming non-own messages
+      // Verify that this message belongs to the current user
+      if (msgSenderId !== authUserId && msgReceiverId !== authUserId) return;
+
+      // Deduplication: ignore if this exact message ID was already processed
+      const msgIdStr = String(newMessage._id);
+      if (processedMsgIds.has(msgIdStr)) return;
+      processedMsgIds.add(msgIdStr);
+      if (processedMsgIds.size > 250) {
+        const oldest = Array.from(processedMsgIds)[0];
+        processedMsgIds.delete(oldest);
+      }
+
+      // Play sound for incoming non-own messages
       if (msgSenderId !== authUserId) {
         playIncomingSound(newMessage);
       }
 
-      const isRelevant =
-        msgSenderId === selectedUserId ||
-        msgReceiverId === selectedUserId;
+      const { selectedUser } = get();
+      const currentSelectedUserId = selectedUser ? String(selectedUser._id) : null;
+      const isCurrentChatOpen = currentSelectedUserId && (
+        msgSenderId === currentSelectedUserId || msgReceiverId === currentSelectedUserId
+      );
 
-      if (!isRelevant) {
-        // Message is from a different conversation — mark as unread on the sidebar
-        get().markUnread(msgSenderId);
-        set((state) => ({
-          users: state.users.map(u =>
-            String(u._id) === msgSenderId ? { ...u, lastMessage: newMessage } : u
-          )
-        }));
-        return;
+      // ── 1. If the target chat is open, update active message stream ─────────────
+      if (isCurrentChatOpen) {
+        set((state) => {
+          const msgs = state.messages;
+          if (msgs.some((m) => String(m._id) === msgIdStr)) return {};
+
+          if (newMessage.clientMessageId) {
+            const optIdx = msgs.findIndex((m) => m.clientMessageId === newMessage.clientMessageId);
+            if (optIdx > -1) {
+              const updatedMsgs = [...msgs];
+              updatedMsgs[optIdx] = { ...newMessage, status: "sent" };
+              return { messages: updatedMsgs };
+            }
+          }
+
+          return {
+            messages: [...msgs, { ...newMessage, status: msgSenderId === currentSelectedUserId ? "read" : newMessage.status || "sent" }],
+          };
+        });
+
+        if (msgSenderId === currentSelectedUserId) {
+          get().markMessagesAsRead(currentSelectedUserId);
+        }
+      }
+
+      // ── 2. LIVE INBOX & UNREAD SYNCHRONIZATION ─────────────────────────────────
+      // Update sidebar users list: lastMessage, unreadCount, and reorder to top
+      const partnerId = msgSenderId === authUserId ? msgReceiverId : msgSenderId;
+      const shouldIncrementUnread = msgSenderId !== authUserId && partnerId !== currentSelectedUserId;
+
+      if (shouldIncrementUnread) {
+        get().markUnread(partnerId);
       }
 
       set((state) => {
-        const msgs = state.messages;
+        const userIndex = state.users.findIndex((u) => String(u._id) === String(partnerId));
+        let updatedUsers = [...state.users];
 
-        // Deduplication: if exact _id already in state, skip entirely
-        if (msgs.some((m) => m._id === newMessage._id)) return {};
+        if (userIndex > -1) {
+          const targetUser = updatedUsers[userIndex];
+          const newUnread = shouldIncrementUnread
+            ? (targetUser.unreadCount || 0) + 1
+            : (partnerId === currentSelectedUserId ? 0 : targetUser.unreadCount || 0);
 
-        // Deduplication by clientMessageId: replace optimistic placeholder in-place
-        if (newMessage.clientMessageId) {
-          const optimisticIdx = msgs.findIndex(
-            (m) => m.clientMessageId === newMessage.clientMessageId
-          );
-          if (optimisticIdx > -1) {
-            const updatedMsgs = [...msgs];
-            updatedMsgs[optimisticIdx] = { ...newMessage, status: "sent" };
-            return {
-              messages: updatedMsgs,
-              users: state.users.map(u =>
-                String(u._id) === selectedUserId ? { ...u, lastMessage: newMessage } : u
-              ),
-            };
-          }
+          const updatedTarget = {
+            ...targetUser,
+            lastMessage: newMessage,
+            unreadCount: newUnread,
+          };
+
+          // Re-order: Move conversation with the latest message to index 0 (top of sidebar)
+          updatedUsers.splice(userIndex, 1);
+          updatedUsers.unshift(updatedTarget);
         }
 
-        // Brand new incoming message from the other party
-        // If we are currently viewing this conversation, mark it as read immediately
-        if (msgSenderId === selectedUserId) {
-          get().markMessagesAsRead(selectedUserId);
-        }
-
-        return {
-          messages: [...msgs, { ...newMessage, status: msgSenderId === selectedUserId ? "read" : newMessage.status || "sent" }],
-          users: state.users.map(u =>
-            String(u._id) === selectedUserId ? { ...u, lastMessage: newMessage } : u
-          ),
-        };
+        return { users: updatedUsers };
       });
     });
 
+    // ── Group Messages Realtime Listener ──────────────────────────────────────
+    socket.on("newGroupMessage", ({ groupId, message }) => {
+      if (!message || !groupId) return;
+      const authUser = useAuthStore.getState().authUser;
+      if (!authUser) return;
+
+      const authUserId = String(authUser._id);
+      const msgSenderId = String(message.senderId?._id ?? message.senderId);
+
+      if (msgSenderId !== authUserId) {
+        playIncomingSound(message);
+      }
+
+      const selectedGroup = useGroupStore.getState().selectedGroup;
+      const isGroupOpen = selectedGroup && String(selectedGroup._id) === String(groupId);
+
+      if (isGroupOpen) {
+        useGroupStore.setState((state) => ({
+          groupMessages: state.groupMessages.some((m) => String(m._id) === String(message._id))
+            ? state.groupMessages
+            : [...state.groupMessages, message],
+        }));
+      }
+
+      // Update group lastMessage and move to top of group list
+      useGroupStore.setState((state) => {
+        const gIdx = state.groups.findIndex((g) => String(g._id) === String(groupId));
+        if (gIdx === -1) return {};
+        const updatedGroups = [...state.groups];
+        const targetGroup = { ...updatedGroups[gIdx], lastMessage: message };
+        updatedGroups.splice(gIdx, 1);
+        updatedGroups.unshift(targetGroup);
+        return { groups: updatedGroups };
+      });
+    });
+
+    // ── Additional Realtime Listeners ─────────────────────────────────────────
     socket.on("messageEdited", (updatedMsg) => {
       set((state) => ({
-        messages: state.messages.map(m => m._id === updatedMsg._id ? updatedMsg : m)
+        messages: state.messages.map((m) => m._id === updatedMsg._id ? updatedMsg : m),
       }));
     });
 
     socket.on("messageDeleted", (deletedMsgId) => {
       set((state) => ({
-        messages: state.messages.filter(m => m._id !== deletedMsgId)
+        messages: state.messages.filter((m) => m._id !== deletedMsgId),
       }));
     });
 
     socket.on("messageReaction", (updatedMsg) => {
       set((state) => ({
-        messages: state.messages.map(m => m._id === updatedMsg._id ? updatedMsg : m)
+        messages: state.messages.map((m) => m._id === updatedMsg._id ? updatedMsg : m),
       }));
     });
 
     socket.on("messagePinned", (updatedMsg) => {
       set((state) => ({
-        messages: state.messages.map(m => m._id === updatedMsg._id ? updatedMsg : m)
+        messages: state.messages.map((m) => m._id === updatedMsg._id ? updatedMsg : m),
       }));
     });
 
     socket.on("typing", ({ senderId }) => {
-      if (String(senderId) === selectedUserId) {
+      const { selectedUser } = get();
+      if (selectedUser && String(senderId) === String(selectedUser._id)) {
         set((state) => ({ typingUsers: { ...state.typingUsers, [senderId]: true } }));
       }
     });
 
     socket.on("stopTyping", ({ senderId }) => {
-      if (String(senderId) === selectedUserId) {
-        set((state) => {
-          const next = { ...state.typingUsers };
-          delete next[senderId];
-          return { typingUsers: next };
-        });
-      }
+      set((state) => {
+        const next = { ...state.typingUsers };
+        delete next[senderId];
+        return { typingUsers: next };
+      });
     });
 
-    // Update contact list when a user updates their profile
     socket.on("userProfileUpdated", ({ userId, updatedUser }) => {
       set((state) => ({
         users: state.users.map((u) =>
@@ -622,7 +691,6 @@ export const useChatStore = create((set, get) => ({
               }
             : u
         ),
-        // Update selectedUser if they changed their profile
         selectedUser:
           state.selectedUser && String(state.selectedUser._id) === String(userId)
             ? {
@@ -635,7 +703,6 @@ export const useChatStore = create((set, get) => ({
       }));
     });
 
-    // Delivery and Read Receipt Listeners
     socket.on("messagesDelivered", ({ messageIds }) => {
       set((state) => ({
         messages: state.messages.map((m) =>
@@ -654,7 +721,6 @@ export const useChatStore = create((set, get) => ({
       }));
     });
 
-    // Disappearing message expiration real-time listener
     socket.on("messageExpired", ({ messageId }) => {
       set((state) => ({
         messages: state.messages.filter((m) => m._id !== messageId),
@@ -663,24 +729,6 @@ export const useChatStore = create((set, get) => ({
 
     socket.on("groupMessageExpired", ({ groupId, messageId }) => {
       useGroupStore.getState().handleGroupMessageExpired({ groupId, messageId });
-    });
-
-    socket.on("newGroupMessage", ({ groupId, message }) => {
-      const authUserId = String(useAuthStore.getState().authUser?._id || "");
-      const msgSenderId = String(message.senderId?._id ?? message.senderId);
-
-      if (msgSenderId !== authUserId) {
-        playIncomingSound(message);
-      }
-
-      const selectedGroup = useGroupStore.getState().selectedGroup;
-      if (selectedGroup && String(selectedGroup._id) === String(groupId)) {
-        useGroupStore.setState((state) => ({
-          groupMessages: state.groupMessages.some((m) => m._id === message._id)
-            ? state.groupMessages
-            : [...state.groupMessages, message],
-        }));
-      }
     });
 
     socket.on("newGroupCreated", (group) => {
@@ -694,20 +742,13 @@ export const useChatStore = create((set, get) => ({
     });
   },
 
-  unsubscribeFromMessages: () => {
+  subscribeToMessages: () => {
     const socket = useAuthStore.getState().socket;
-    if (!socket) return; // Guard: socket may be null during reconnection
-    socket.off("newMessage");
-    socket.off("messageEdited");
-    socket.off("messageDeleted");
-    socket.off("messageReaction");
-    socket.off("messagePinned");
-    socket.off("typing");
-    socket.off("stopTyping");
-    socket.off("userProfileUpdated");
-    socket.off("messagesDelivered");
-    socket.off("messagesRead");
-    socket.off("userOffline");
+    if (socket) get().initGlobalSocketListeners(socket);
+  },
+
+  unsubscribeFromMessages: () => {
+    // Keep global inbox listeners active for live realtime updates across the entire app
   },
 
   // Emit typing indicator

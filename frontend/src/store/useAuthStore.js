@@ -142,6 +142,11 @@ export const useAuthStore = create((set, get) => ({
       set({ onlineUsers: userIds });
     });
 
+    // Initialize global real-time message and group inbox listeners
+    import("./useChatStore.js").then(({ useChatStore }) => {
+      useChatStore.getState().initGlobalSocketListeners(socket);
+    });
+
     // Real-time profile update: update contacts in chat lists if their profile changes
     socket.on("userProfileUpdated", ({ userId, updatedUser }) => {
       // Update authUser if it's our own profile updated from another device
