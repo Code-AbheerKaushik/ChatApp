@@ -68,7 +68,7 @@ const ProfilePage = () => {
         <div className="text-6xl">👤</div>
         <h2 className="text-xl font-bold text-base-content">User Not Found</h2>
         <p className="text-sm text-base-content/60">This profile does not exist or is private.</p>
-        <button onClick={() => navigate(-1)} className="btn btn-primary btn-sm rounded-xl">Go Back</button>
+        <button onClick={() => navigate("/")} className="btn btn-primary btn-sm rounded-xl">Go Back</button>
       </div>
     );
   }
@@ -118,7 +118,7 @@ const ProfilePage = () => {
           <div className="w-[92%] sm:w-[88%] lg:w-[84%] max-w-[1500px] mx-auto px-2 sm:px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <button
-                onClick={() => navigate(-1)}
+                onClick={() => navigate("/")}
                 className="p-2 rounded-xl bg-base-200/80 hover:bg-base-200 text-base-content transition-colors flex items-center justify-center"
                 title="Go Back"
               >

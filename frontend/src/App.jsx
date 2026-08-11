@@ -11,6 +11,7 @@ import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useAuthStore } from "./store/useAuthStore";
 import { useThemeStore } from "./store/useThemeStore";
 import { useEffect } from "react";
+import { useBackHandler } from "./hooks/useBackHandler";
 
 import { Loader } from "lucide-react";
 import { Toaster } from "react-hot-toast";
@@ -23,6 +24,9 @@ const App = () => {
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
+
+  // Handle browser/device back button like a native mobile app
+  useBackHandler();
 
   if (isCheckingAuth && !authUser)
     return (
