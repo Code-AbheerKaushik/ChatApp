@@ -647,17 +647,36 @@ export const useChatStore = create((set, get) => ({
       }));
     });
 
-    // Real-time Presence Updates
-    socket.on("userOffline", ({ userId, lastSeen }) => {
+    // Disappearing message expiration real-time listener
+    socket.on("messageExpired", ({ messageId }) => {
       set((state) => ({
-        users: state.users.map((u) =>
-          String(u._id) === String(userId) ? { ...u, lastSeen } : u
-        ),
-        selectedUser:
-          state.selectedUser && String(state.selectedUser._id) === String(userId)
-            ? { ...state.selectedUser, lastSeen }
-            : state.selectedUser,
+        messages: state.messages.filter((m) => m._id !== messageId),
       }));
+    });
+
+    socket.on("groupMessageExpired", ({ groupId, messageId }) => {
+      useGroupStore.getState().handleGroupMessageExpired({ groupId, messageId });
+    });
+
+    socket.on("newGroupMessage", ({ groupId, message }) => {
+      const selectedGroup = useGroupStore.getState().selectedGroup;
+      if (selectedGroup && String(selectedGroup._id) === String(groupId)) {
+        useGroupStore.setState((state) => ({
+          groupMessages: state.groupMessages.some((m) => m._id === message._id)
+            ? state.groupMessages
+            : [...state.groupMessages, message],
+        }));
+      }
+    });
+
+    socket.on("newGroupCreated", (group) => {
+      useGroupStore.setState((state) => ({
+        groups: [group, ...state.groups],
+      }));
+    });
+
+    socket.on("groupUpdated", (group) => {
+      useGroupStore.getState().handleGroupUpdated(group);
     });
   },
 

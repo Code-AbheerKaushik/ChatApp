@@ -1,5 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { useChatStore } from "../store/useChatStore";
+import { useGroupStore } from "../store/useGroupStore";
 import {
   Send, X, Paperclip, Mic, MicOff, SmilePlus,
   Image as ImageIcon, FileText, Reply
@@ -155,16 +156,27 @@ const MessageInput = () => {
         });
       }
 
-      // Fire-and-forget: sendMessage handles optimistic insert + backend call.
-      // Each call gets its own clientMessageId so duplicates are impossible.
-      const sent = await sendMessage({
-        text: currentText,
-        media: [...currentMedia.map(({ name, type, size, data }) => ({ name, type, size, data })), ...(audioBase64 ? [{ name: "Voice message.webm", type: "audio/webm", size: currentAudioBlob.size, data: audioBase64 }] : [])],
-        replyTo: currentReplyTo || undefined,
-      });
+      let sent = false;
+      if (useGroupStore.getState().selectedGroup) {
+        sent = await useGroupStore.getState().sendGroupMessage(
+          useGroupStore.getState().selectedGroup._id,
+          {
+            text: currentText,
+            media: [...currentMedia.map(({ name, type, size, data }) => ({ name, type, size, data })), ...(audioBase64 ? [{ name: "Voice message.webm", type: "audio/webm", size: currentAudioBlob.size, data: audioBase64 }] : [])],
+            replyTo: currentReplyTo || undefined,
+          }
+        );
+      } else {
+        sent = await sendMessage({
+          text: currentText,
+          media: [...currentMedia.map(({ name, type, size, data }) => ({ name, type, size, data })), ...(audioBase64 ? [{ name: "Voice message.webm", type: "audio/webm", size: currentAudioBlob.size, data: audioBase64 }] : [])],
+          replyTo: currentReplyTo || undefined,
+        });
+      }
       preserveDraftUntilSendResultRef.current = false;
-      if (sent) saveDraft(selectedUser._id, "");
-      else if (currentText) setText((value) => value || currentText);
+      if (sent) {
+        if (selectedUser?._id) saveDraft(selectedUser._id, "");
+      } else if (currentText) setText((value) => value || currentText);
     } catch (error) {
       preserveDraftUntilSendResultRef.current = false;
       // sendMessage catches its own errors internally; this is a safety net.

@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from "react";
-import { ArrowLeft, Phone, Video, Search, MoreVertical, X, BellOff, Star, Archive, Trash2, Pin, User } from "lucide-react";
+import { ArrowLeft, Phone, Video, Search, MoreVertical, X, BellOff, Star, Archive, Trash2, Pin, User, Settings, Clock, Users } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
 import { useChatStore } from "../store/useChatStore";
+import { useGroupStore } from "../store/useGroupStore";
 import { useNavigate } from "react-router-dom";
 
 const formatLastSeen = (lastSeenTime) => {
@@ -24,16 +25,20 @@ const formatLastSeen = (lastSeenTime) => {
 
 const ChatHeader = () => {
   const { selectedUser, setSelectedUser, typingUsers, conversationSearchQuery, setConversationSearch, toggleConversationSearch, conversationSearchOpen } = useChatStore();
+  const { selectedGroup, setSelectedGroup, setGroupSettingsModalOpen } = useGroupStore();
   const { onlineUsers } = useAuthStore();
   const [menuOpen, setMenuOpen] = useState(false);
   const [callModal, setCallModal] = useState(null); // "voice" | "video" | null
   const menuRef = useRef(null);
   const navigate = useNavigate();
 
+  const isGroup = !!selectedGroup;
   const isOnline = onlineUsers.includes(String(selectedUser?._id));
   const isTyping = typingUsers[selectedUser?._id];
 
-  const statusText = isTyping
+  const statusText = isGroup
+    ? `${selectedGroup.members?.length || 0} members`
+    : isTyping
     ? "typing..."
     : isOnline
     ? "Online"
@@ -61,35 +66,47 @@ const ChatHeader = () => {
         <div className="flex items-center gap-2 min-w-0 flex-1">
           {/* Mobile back button */}
           <button
-            onClick={() => setSelectedUser(null)}
+            onClick={() => { setSelectedUser(null); setSelectedGroup(null); }}
             className="md:hidden btn btn-ghost btn-sm btn-circle flex-shrink-0"
             aria-label="Back to contacts"
           >
             <ArrowLeft className="size-5" />
           </button>
 
-          {/* Avatar + Name - clickable to open profile */}
+          {/* Avatar + Name - clickable to open profile or group settings */}
           <button
-            onClick={openUserProfile}
+            onClick={() => {
+              if (isGroup) setGroupSettingsModalOpen(true);
+              else openUserProfile();
+            }}
             className="flex items-center gap-2 min-w-0 flex-1 text-left hover:opacity-80 transition-opacity group"
-            title="View profile"
+            title={isGroup ? "Group Settings" : "View profile"}
           >
             {/* Avatar */}
             <div className="relative flex-shrink-0">
               <img
-                src={selectedUser?.profilePic || "/avatar.png"}
-                alt={selectedUser?.fullName}
+                src={isGroup ? selectedGroup.groupPic || "/avatar.png" : selectedUser?.profilePic || "/avatar.png"}
+                alt={isGroup ? selectedGroup.name : selectedUser?.fullName}
                 className="size-9 sm:size-10 rounded-full object-cover"
               />
-              {isOnline && (
+              {!isGroup && isOnline && (
                 <span className="absolute bottom-0 right-0 size-2.5 bg-success rounded-full ring-2 ring-base-100" />
               )}
             </div>
 
             {/* Name + Status */}
             <div className="min-w-0 flex-1">
-              <h3 className="font-semibold text-sm truncate leading-snug group-hover:text-primary transition-colors">{selectedUser?.fullName}</h3>
-              <p className={`text-xs truncate leading-none transition-colors ${isTyping ? "text-primary font-medium animate-pulse" : isOnline ? "text-success" : "text-base-content/50"}`}>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <h3 className="font-semibold text-sm truncate leading-snug group-hover:text-primary transition-colors">
+                  {isGroup ? selectedGroup.name : selectedUser?.fullName}
+                </h3>
+                {isGroup && selectedGroup.disappearingDuration > 0 && (
+                  <span className="badge badge-primary badge-xs gap-1 font-normal py-0.5 px-1.5" title="Disappearing messages enabled">
+                    <Clock className="size-2.5" />
+                  </span>
+                )}
+              </div>
+              <p className={`text-xs truncate leading-none transition-colors ${!isGroup && isTyping ? "text-primary font-medium animate-pulse" : !isGroup && isOnline ? "text-success" : "text-base-content/50"}`}>
                 {statusText}
               </p>
             </div>

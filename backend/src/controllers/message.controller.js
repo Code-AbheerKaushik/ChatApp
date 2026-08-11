@@ -109,12 +109,21 @@ export const getMessages = async (req, res) => {
       }
     }
 
-    // 2. Fetch the conversation messages
+    // 2. Fetch the conversation messages (filtering out expired disappearing messages)
+    const now = new Date();
     const messages = await Message.find({
       $or: [
         { senderId: myId, receiverId: userToChatId },
         { senderId: userToChatId, receiverId: myId },
       ],
+      $and: [
+        {
+          $or: [
+            { expiresAt: null },
+            { expiresAt: { $gt: now } }
+          ]
+        }
+      ]
     })
       .sort({ createdAt: 1 })
       .populate("replyTo");

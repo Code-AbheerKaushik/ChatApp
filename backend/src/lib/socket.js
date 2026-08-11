@@ -67,6 +67,15 @@ io.on("connection", async (socket) => {
 
   io.emit("getOnlineUsers", Object.keys(userSocketMap));
 
+  // Join group socket rooms
+  socket.on("joinGroup", (groupId) => {
+    if (groupId) socket.join(`group_${groupId}`);
+  });
+
+  socket.on("leaveGroup", (groupId) => {
+    if (groupId) socket.leave(`group_${groupId}`);
+  });
+
   // ─── Typing Events with privacy check ─────────────────────────────────────
   socket.on("typing", async ({ receiverId }) => {
     try {

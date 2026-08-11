@@ -5,9 +5,11 @@ import { useAuthStore } from "../store/useAuthStore";
 import { useNavigate } from "react-router-dom";
 import SidebarSkeleton from "./skeletons/SidebarSkeleton";
 import ContextMenuPortal from "./ContextMenuPortal";
+import { useGroupStore } from "../store/useGroupStore";
+import CreateGroupModal from "./CreateGroupModal";
 import {
   Users, Search, X, Pin, Archive, BellOff, Star,
-  MailOpen, MoreVertical, Trash2, User, MessageSquare
+  MailOpen, MoreVertical, Trash2, User, MessageSquare, Plus, Clock
 } from "lucide-react";
 
 const FILTERS = [
@@ -182,9 +184,12 @@ const Sidebar = () => {
   const [activeMenu, setActiveMenu] = useState(null); // { user, triggerRect } | null
   const [savedMessages, setSavedMessages] = useState([]);
 
+  const { groups, getGroups, selectedGroup, setSelectedGroup, setCreateGroupModalOpen } = useGroupStore();
+
   useEffect(() => {
     getUsers();
-  }, [getUsers]);
+    getGroups();
+  }, [getUsers, getGroups]);
 
   useEffect(() => {
     const query = searchQuery.trim();
@@ -296,9 +301,18 @@ const Sidebar = () => {
     <aside className="h-full w-full md:w-20 lg:w-80 border-r border-base-300 flex flex-col bg-base-100 transition-all duration-200 relative">
       {/* Header */}
       <div className="p-4 border-b border-base-300 space-y-3">
-        <div className="flex items-center gap-2">
-          <Users className="size-5 text-primary" />
-          <span className="font-semibold text-base block md:hidden lg:block">Chats</span>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Users className="size-5 text-primary" />
+            <span className="font-semibold text-base block md:hidden lg:block">Chats</span>
+          </div>
+          <button
+            onClick={() => setCreateGroupModalOpen(true)}
+            className="btn btn-ghost btn-xs text-primary gap-1 block md:hidden lg:flex"
+            title="Create New Group Chat"
+          >
+            <Plus className="size-4" /> <span className="text-xs font-bold">New Group</span>
+          </button>
         </div>
 
         {/* Search Bar */}
@@ -356,8 +370,50 @@ const Sidebar = () => {
         </div>
       )}
 
-      {/* Contact List */}
+      {/* Contact & Group List */}
       <div className="flex-1 overflow-y-auto min-h-0 messages-scrollbar">
+        {/* Groups Section Header if groups exist */}
+        {groups.length > 0 && activeFilter === "all" && !searchQuery && (
+          <div className="px-3 pt-3 pb-1">
+            <span className="text-[11px] font-bold text-base-content/50 uppercase tracking-wider">Group Chats ({groups.length})</span>
+            <div className="space-y-1 mt-1">
+              {groups.map((group) => {
+                const isSelected = selectedGroup?._id === group._id;
+                return (
+                  <button
+                    key={group._id}
+                    onClick={() => {
+                      setSelectedGroup(group);
+                      useChatStore.getState().setSelectedUser(null);
+                    }}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors ${
+                      isSelected ? "bg-primary/10 text-primary font-bold" : "hover:bg-base-200"
+                    }`}
+                  >
+                    <div className="relative flex-shrink-0">
+                      <img src={group.groupPic || "/avatar.png"} alt={group.name} className="size-10 rounded-full object-cover border border-base-300" />
+                      {group.disappearingDuration > 0 && (
+                        <span className="absolute -bottom-0.5 -right-0.5 p-0.5 bg-primary text-primary-content rounded-full" title="Disappearing messages enabled">
+                          <Clock className="size-2.5" />
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold truncate">{group.name}</span>
+                      </div>
+                      <p className="text-xs text-base-content/50 truncate">
+                        {group.members?.length || 0} members
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="divider my-2 text-[10px] text-base-content/40">Direct Messages</div>
+          </div>
+        )}
+
         {activeFilter === "saved" ? (
           savedMessages.length ? savedMessages.map((message) => <button key={message._id} className="w-full p-3 text-left hover:bg-base-200 border-b border-base-200" onClick={() => openMessageResult(message)}><p className="text-xs font-medium">{message.senderId?.fullName || "Unknown"}</p><p className="text-sm truncate">{message.text || "Attachment"}</p><p className="text-[10px] text-base-content/50">{new Date(message.createdAt).toLocaleString()}</p></button>) : <p className="p-5 text-center text-sm text-base-content/50">No saved messages</p>
         ) : sortedUsers.length === 0 ? (
@@ -401,6 +457,9 @@ const Sidebar = () => {
           title={`Options for ${activeMenu.user?.fullName}`}
         />
       )}
+
+      {/* Create Group Modal */}
+      <CreateGroupModal />
     </aside>
   );
 };

@@ -1,7 +1,9 @@
 import { useChatStore } from "../store/useChatStore";
+import { useGroupStore } from "../store/useGroupStore";
 import { useEffect, useRef, useState, useCallback } from "react";
 import ChatHeader from "./ChatHeader";
 import MessageInput from "./MessageInput";
+import GroupSettingsModal from "./GroupSettingsModal";
 import MessageSkeleton from "./skeletons/MessageSkeleton";
 import { useAuthStore } from "../store/useAuthStore";
 import { formatMessageTime } from "../lib/utils";
@@ -269,7 +271,11 @@ const ChatContainer = () => {
     conversationSearchQuery, toggleStarMessage, forwardMessage, users,
     navigationTargetMessageId, clearNavigationTarget,
   } = useChatStore();
+  const { selectedGroup, groupMessages, getGroupMessages, isGroupMessagesLoading } = useGroupStore();
   const { authUser } = useAuthStore();
+
+  const activeMessages = selectedGroup ? groupMessages : messages;
+  const activeLoading = selectedGroup ? isGroupMessagesLoading : isMessagesLoading;
 
   const messagesContainerRef = useRef(null);
   const isFirstLoadRef = useRef(true);
@@ -310,16 +316,19 @@ const ChatContainer = () => {
 
   // Fetch messages & subscribe socket
   useEffect(() => {
-    if (navigationTargetMessageId) {
-      openedSearchContextRef.current = navigationTargetMessageId;
-      getMessageContext(navigationTargetMessageId);
-    } else if (openedSearchContextRef.current) {
-      // clearNavigationTarget runs after the targeted window has rendered.
-      openedSearchContextRef.current = null;
-    } else getMessages(selectedUser._id);
+    if (selectedGroup) {
+      getGroupMessages(selectedGroup._id);
+    } else if (selectedUser) {
+      if (navigationTargetMessageId) {
+        openedSearchContextRef.current = navigationTargetMessageId;
+        getMessageContext(navigationTargetMessageId);
+      } else if (openedSearchContextRef.current) {
+        openedSearchContextRef.current = null;
+      } else getMessages(selectedUser._id);
+    }
     subscribeToMessages();
     return () => unsubscribeFromMessages();
-  }, [selectedUser._id, navigationTargetMessageId, getMessages, getMessageContext, subscribeToMessages, unsubscribeFromMessages]);
+  }, [selectedUser?._id, selectedGroup?._id, navigationTargetMessageId, getMessages, getGroupMessages, getMessageContext, subscribeToMessages, unsubscribeFromMessages]);
 
   // Reset scroll flags on user change
   useEffect(() => {
@@ -382,7 +391,7 @@ const ChatContainer = () => {
     setEditText("");
   };
 
-  if (isMessagesLoading) {
+  if (activeLoading) {
     return (
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         <ChatHeader />
@@ -434,17 +443,18 @@ const ChatContainer = () => {
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto min-h-0 messages-scrollbar px-3 sm:px-4 py-3 space-y-3"
       >
-        {filteredMessages.length === 0 && conversationSearchQuery ? (
+        {activeMessages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
-            <p className="text-sm text-base-content/50">No messages match &quot;{conversationSearchQuery}&quot;</p>
+            <p className="text-sm text-base-content/50">No messages yet. Send a message to start chatting!</p>
           </div>
         ) : (
-          filteredMessages.map((message) => (
+          activeMessages.map((message) => (
             <MessageBubble
               key={message._id || message.clientMessageId}
               message={message}
               isOwn={
                 message.senderId === authUser._id ||
+                message.senderId?._id === authUser._id ||
                 message.senderId?.toString() === authUser._id?.toString()
               }
               authUser={authUser}
@@ -505,6 +515,7 @@ const ChatContainer = () => {
         </div>
       )}
       {imageLightbox && <ImageLightbox gallery={imageLightbox.gallery} index={imageLightbox.index} onClose={() => setImageLightbox(null)} />}
+      <GroupSettingsModal />
     </div>
   );
 };
