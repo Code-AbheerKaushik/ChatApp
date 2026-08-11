@@ -558,14 +558,13 @@ export const useChatStore = create((set, get) => ({
             }
           }
 
+          // Message arrives in active chat → store as "delivered" (socket delivered it).
+          // The actual "read" status is set via markMessagesAsRead only when
+          // the chat is open AND we explicitly open/load messages.
           return {
-            messages: [...msgs, { ...newMessage, status: msgSenderId === currentSelectedUserId ? "read" : newMessage.status || "sent" }],
+            messages: [...msgs, { ...newMessage, status: "delivered" }],
           };
         });
-
-        if (msgSenderId === currentSelectedUserId) {
-          get().markMessagesAsRead(currentSelectedUserId);
-        }
       }
 
       // ── 2. LIVE INBOX & UNREAD SYNCHRONIZATION ─────────────────────────────────
@@ -782,7 +781,8 @@ export const useChatStore = create((set, get) => ({
     set({ selectedUser, conversationSearchQuery: "", conversationSearchOpen: false, replyToMessage: null, navigationTargetMessageId: null });
     if (selectedUser) {
       get().clearUnread(selectedUser._id);
-      get().markMessagesAsRead(selectedUser._id);
+      // Note: markMessagesAsRead is called by getMessages() when the conversation loads.
+      // Do NOT call it here to prevent premature blue ticks before messages are visible.
     }
   },
 }));
