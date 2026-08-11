@@ -340,35 +340,36 @@ const ChatContainer = () => {
 
   // Smart auto-scroll effect
   useEffect(() => {
-    if (!messages || messages.length === 0) return;
+    if (!activeMessages || activeMessages.length === 0) return;
 
     if (isFirstLoadRef.current) {
       // First load for conversation -> jump to bottom immediately
       scrollToBottom("auto");
       isFirstLoadRef.current = false;
-      prevMessagesLengthRef.current = messages.length;
+      prevMessagesLengthRef.current = activeMessages.length;
       return;
     }
 
-    const isNewMessage = messages.length > prevMessagesLengthRef.current;
-    const lastMessage = messages[messages.length - 1];
-    // isOwnMessage: check by senderId OR by clientMessageId optimistic message
-    const isOwnMessage =
-      lastMessage?.senderId === authUser._id ||
-      lastMessage?.senderId?.toString() === authUser._id?.toString();
+    const isNewMessage = activeMessages.length > prevMessagesLengthRef.current;
+    const lastMessage = activeMessages[activeMessages.length - 1];
+    const lastSenderId = String(lastMessage?.senderId?._id || lastMessage?.senderId || "");
+    const isOwnMessage = lastSenderId === String(authUser._id);
 
     if (isNewMessage) {
-      if (isAtBottom || isOwnMessage) {
+      if (isOwnMessage) {
+        // Instant 0ms scroll for own sent messages
+        scrollToBottom("auto");
+      } else if (isAtBottom) {
         scrollToBottom("smooth");
       } else {
         setHasNewMessagesBelow(true);
       }
     } else if (isAtBottom) {
-      scrollToBottom("smooth");
+      scrollToBottom("auto");
     }
 
-    prevMessagesLengthRef.current = messages.length;
-  }, [messages, authUser._id, isAtBottom, scrollToBottom]);
+    prevMessagesLengthRef.current = activeMessages.length;
+  }, [activeMessages, authUser._id, isAtBottom, scrollToBottom]);
 
   useEffect(() => {
     if (!navigationTargetMessageId || !messages.length) return;

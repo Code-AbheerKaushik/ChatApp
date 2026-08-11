@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { axiosInstance } from "../lib/axios";
 import toast from "react-hot-toast";
+import { useAuthStore } from "./useAuthStore";
 
 export const useGroupStore = create((set, get) => ({
   groups: [],
@@ -111,14 +112,51 @@ export const useGroupStore = create((set, get) => ({
   },
 
   sendGroupMessage: async (groupId, messageData) => {
+    const authUser = useAuthStore.getState().authUser;
+    const clientMessageId = `group_msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    // Build optimistic message for instant rendering
+    const optimisticMsg = {
+      _id: clientMessageId,
+      clientMessageId,
+      groupId,
+      senderId: authUser,
+      text: messageData.text || null,
+      media: (messageData.media || []).map((media) => ({
+        ...media,
+        url: media.data,
+        fileName: media.name,
+        mimeType: media.type,
+        kind: media.type?.startsWith("image/") ? "image" : media.type?.startsWith("video/") ? "video" : media.type?.startsWith("audio/") ? "audio" : "document",
+      })),
+      replyTo: messageData.replyTo || null,
+      reactions: [],
+      createdAt: new Date().toISOString(),
+      status: "sending",
+    };
+
+    // Immediately add optimistic message to state
+    set((state) => ({
+      groupMessages: [...state.groupMessages, optimisticMsg],
+    }));
+
     try {
-      const res = await axiosInstance.post(`/groups/${groupId}/send`, messageData);
+      const res = await axiosInstance.post(`/groups/${groupId}/send`, { ...messageData, clientMessageId });
+      const serverMsg = { ...res.data, status: "sent" };
+
       set((state) => ({
-        groupMessages: [...state.groupMessages, res.data],
+        groupMessages: state.groupMessages.map((m) =>
+          m._id === clientMessageId ? serverMsg : m
+        ),
       }));
-      return res.data;
+      return serverMsg;
     } catch (error) {
-      toast.error(error.response?.data?.error || "Failed to send message");
+      set((state) => ({
+        groupMessages: state.groupMessages.map((m) =>
+          m._id === clientMessageId ? { ...m, status: "failed" } : m
+        ),
+      }));
+      toast.error(error.response?.data?.error || "Failed to send group message");
       throw error;
     }
   },
