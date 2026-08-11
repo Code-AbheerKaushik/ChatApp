@@ -308,10 +308,10 @@ const Sidebar = () => {
           </div>
           <button
             onClick={() => setCreateGroupModalOpen(true)}
-            className="btn btn-ghost btn-xs text-primary gap-1 block md:hidden lg:flex"
+            className="btn btn-ghost btn-xs text-primary gap-1 flex items-center whitespace-nowrap md:hidden lg:flex"
             title="Create New Group Chat"
           >
-            <Plus className="size-4" /> <span className="text-xs font-bold">New Group</span>
+            <Plus className="size-4 shrink-0" /> <span className="text-xs font-bold whitespace-nowrap">New Group</span>
           </button>
         </div>
 
