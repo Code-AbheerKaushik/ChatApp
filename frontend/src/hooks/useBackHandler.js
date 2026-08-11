@@ -5,88 +5,95 @@ import { useChatStore } from "../store/useChatStore";
 import { useGroupStore } from "../store/useGroupStore";
 
 /**
- * Handles the browser/device back button like a native mobile app.
+ * Intercepts the browser back button to behave like a native mobile app.
  *
- * Priority order when back is pressed:
- * 1. If a chat or group is open on mobile → close it
- * 2. If on a non-home page → navigate to "/"
- * 3. If at "/" → show "Press back again to exit" toast; second press exits
+ * How it works:
+ * - Pushes a single "blocker" history entry above the current page.
+ * - When back is pressed, popstate fires (we're still on the same URL).
+ * - We inspect app state and decide what to do:
+ *    1. Chat open? Close it.
+ *    2. Inner page? Go home.
+ *    3. At home, first press? Show "Press back again to exit" toast.
+ *    4. At home, second press within 2s? Don't re-push — browser exits naturally.
  *
- * Uses refs to read current state so the effect only registers once on mount.
- * This avoids the re-run/cleanup cycle that was causing phantom back navigations.
+ * Key design decisions that make this reliable:
+ * - Uses window.history.state to detect duplicate sentinels (safe in StrictMode).
+ * - Uses window.location.pathname (not a stale ref) for the path check.
+ * - Does NOT call window.close() — just lets the browser exit naturally on double-press.
+ * - Reads Zustand state via .getState() so the listener never has a stale closure.
  */
-const ROOT_PATH = "/";
+const SENTINEL_KEY = "_backBlocker";
 
 export const useBackHandler = () => {
   const navigate = useNavigate();
-  const location = useLocation();
-
-  // Refs so the single popstate handler always reads fresh values
-  const locationRef = useRef(location);
   const navigateRef = useRef(navigate);
-  const backPressedOnce = useRef(false);
-  const toastId = useRef(null);
+  const exitPending = useRef(false);
+  const exitTimer = useRef(null);
 
-  // Keep refs in sync without re-registering the event listener
-  useEffect(() => { locationRef.current = location; }, [location]);
   useEffect(() => { navigateRef.current = navigate; }, [navigate]);
 
   useEffect(() => {
-    // Push ONE sentinel entry so the first back press fires popstate
-    // instead of immediately leaving the app.
-    window.history.pushState({ _appSentinel: true }, "");
+    // Push the blocker entry only if one isn't already there.
+    // This is idempotent so React StrictMode's double-invoke is safe.
+    if (!window.history.state?.[SENTINEL_KEY]) {
+      window.history.pushState({ [SENTINEL_KEY]: true }, "", window.location.href);
+    }
 
     const handlePopState = () => {
-      // Always re-push the sentinel so the NEXT back press is also intercepted.
-      window.history.pushState({ _appSentinel: true }, "");
-
-      // Read latest state directly from stores (avoids stale closure)
       const { selectedUser, setSelectedUser } = useChatStore.getState();
       const { selectedGroup, setSelectedGroup } = useGroupStore.getState();
-      const isAtRoot = locationRef.current.pathname === ROOT_PATH;
+      const path = window.location.pathname;
 
-      // --- Priority 1: close open chat / group (mobile slide panel) ---
+      // --- Priority 1: close open chat ---
       if (selectedUser) {
+        window.history.pushState({ [SENTINEL_KEY]: true }, "", window.location.href);
         setSelectedUser(null);
         return;
       }
+
+      // --- Priority 2: close open group ---
       if (selectedGroup) {
+        window.history.pushState({ [SENTINEL_KEY]: true }, "", window.location.href);
         setSelectedGroup(null);
         return;
       }
 
-      // --- Priority 2: go home from inner page ---
-      if (!isAtRoot) {
-        navigateRef.current(ROOT_PATH);
+      // --- Priority 3: go home from inner page ---
+      if (path !== "/") {
+        window.history.pushState({ [SENTINEL_KEY]: true }, "", window.location.href);
+        navigateRef.current("/");
         return;
       }
 
-      // --- Priority 3: double-back to exit at root ---
-      if (backPressedOnce.current) {
-        if (toastId.current) toast.dismiss(toastId.current);
-        window.close(); // Works for PWA/standalone; browsers silently ignore for regular tabs
+      // --- Priority 4: at root ---
+      if (exitPending.current) {
+        // Second press within 2s — clear the toast and let the browser go back naturally.
+        // We deliberately do NOT push a new blocker here.
+        clearTimeout(exitTimer.current);
+        exitPending.current = false;
+        toast.dismiss("exit-toast");
         return;
       }
 
-      backPressedOnce.current = true;
-      toastId.current = toast("Press back again to exit", {
+      // First press at root — show the toast and push a new blocker.
+      window.history.pushState({ [SENTINEL_KEY]: true }, "", window.location.href);
+      exitPending.current = true;
+
+      toast("Press back again to exit", {
+        id: "exit-toast",
         duration: 2000,
         icon: "👋",
         style: { borderRadius: "12px", fontWeight: "600", fontSize: "13px" },
       });
 
-      setTimeout(() => {
-        backPressedOnce.current = false;
-        toastId.current = null;
+      exitTimer.current = setTimeout(() => {
+        exitPending.current = false;
       }, 2000);
     };
 
     window.addEventListener("popstate", handlePopState);
-
     return () => {
       window.removeEventListener("popstate", handlePopState);
-      // Remove the sentinel we pushed (no history.back() — that would trigger popstate)
-      window.history.replaceState(null, "");
     };
-  }, []); // Empty deps — registers once, reads state via refs and store.getState()
+  }, []); // Registers once. State is read via getState() and refs — no stale closures.
 };
