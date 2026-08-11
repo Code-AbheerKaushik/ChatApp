@@ -26,7 +26,7 @@ const buildUserResponse = (user) => ({
   blockedUsers: user.blockedUsers,
   twoFactor: { enabled: user.twoFactor?.enabled ?? false },
   onboardingStep: user.onboardingStep,
-  onboardingComplete: user.onboardingComplete ?? false,
+  onboardingComplete: user.onboardingComplete ?? true,
   createdAt: user.createdAt,
 });
 
@@ -205,6 +205,12 @@ export const login = async (req, res) => {
       }
     }
 
+    if (user.onboardingComplete !== true) {
+      user.onboardingComplete = true;
+      user.profileCompleted = true;
+      await user.save();
+    }
+
     const { token } = await generateToken(user._id, res, req);
 
     res.status(200).json({ ...buildUserResponse(user), token });
@@ -335,7 +341,7 @@ export const updateProfile = async (req, res) => {
 
 export const checkAuth = (req, res) => {
   try {
-    res.status(200).json(req.user);
+    res.status(200).json(buildUserResponse(req.user));
   } catch (error) {
     console.log("Error in checkAuth controller", error.message);
     res.status(500).json({ message: "Internal Server Error" });

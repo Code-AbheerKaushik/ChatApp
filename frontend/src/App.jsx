@@ -35,7 +35,7 @@ const App = () => {
       </div>
     );
 
-  const needsOnboarding = authUser && authUser.onboardingComplete !== true;
+  const needsOnboarding = authUser && authUser.onboardingComplete === false;
   const isOnboardingRoute = location.pathname === "/onboarding";
 
   return (
