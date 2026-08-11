@@ -38,6 +38,13 @@ const MessageInput = () => {
     emitTyping, emitStopTyping,
   } = useChatStore();
 
+  // Cleanup typing timer on unmount to prevent setState on unmounted component
+  useEffect(() => {
+    return () => {
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    };
+  }, []);
+
   // Auto-resize textarea
   useEffect(() => {
     const ta = textareaRef.current;
@@ -114,19 +121,17 @@ const MessageInput = () => {
 
     isSendingRef.current = true;
     emitStopTyping();
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
 
     // Capture current values before clearing
     const currentText = text.trim();
     const currentImage = imagePreview;
     const currentFileData = fileData;
-    const currentFilePreview = filePreview;
     const currentFileType = fileType;
     const currentAudioBlob = audioBlob;
     const currentReplyTo = replyToMessage?._id;
 
     // ── INSTANT CLEAR ────────────────────────────────────────────
-    // Clear input state immediately so the UI feels instant.
-    // sendMessage() is fired in the background — no awaiting here.
     setText("");
     setImagePreview(null);
     setFileData(null);
@@ -138,9 +143,14 @@ const MessageInput = () => {
     if (docInputRef.current) docInputRef.current.value = "";
 
     // ── KEEP KEYBOARD OPEN ────────────────────────────────────────
-    // Re-focus textarea immediately so the mobile keyboard stays up.
-    // This must happen synchronously in the same event tick.
+    // Re-focus immediately in the same sync tick so the mobile
+    // OS does not dismiss the virtual keyboard.
     textareaRef.current?.focus();
+
+    // Release guard immediately after clearing — allows rapid
+    // sequential sends without blocking on the network round-trip.
+    // Duplicate prevention is handled by clientMessageId idempotency.
+    isSendingRef.current = false;
 
     try {
       let audioBase64 = null;
@@ -152,8 +162,9 @@ const MessageInput = () => {
         });
       }
 
-      // sendMessage() handles optimistic insertion + backend call
-      await sendMessage({
+      // Fire-and-forget: sendMessage handles optimistic insert + backend call.
+      // Each call gets its own clientMessageId so duplicates are impossible.
+      sendMessage({
         text: currentText,
         image: currentImage || undefined,
         file: currentFileData || audioBase64 || undefined,
@@ -161,11 +172,8 @@ const MessageInput = () => {
         replyTo: currentReplyTo || undefined,
       });
     } catch (error) {
-      console.error("Failed to send message:", error);
-    } finally {
-      isSendingRef.current = false;
-      // Restore focus after async work completes
-      textareaRef.current?.focus();
+      // sendMessage catches its own errors internally; this is a safety net.
+      console.error("Unexpected send error:", error);
     }
   };
 

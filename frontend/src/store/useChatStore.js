@@ -292,15 +292,17 @@ export const useChatStore = create((set, get) => ({
   // --- Optimistic reactToMessage ---
   reactToMessage: async (messageId, emoji) => {
     const authUser = useAuthStore.getState().authUser;
-    const { _reactionInFlight } = get();
+    const inFlight = get()._reactionInFlight;
 
-    // Deduplicate in-flight reactions for the same message + emoji
-    if (_reactionInFlight[messageId] === emoji) return;
+    // Only block if EXACTLY this emoji for this message is already in-flight
+    // (prevents double-fire from accidental double-tap).
+    // Changing to a different emoji is always allowed.
+    if (inFlight[messageId] === emoji) return;
 
     // Save snapshot for rollback
     const snapshot = get().messages;
 
-    // Apply optimistic update immediately
+    // Apply optimistic update immediately (0ms latency)
     set((state) => ({
       _reactionInFlight: { ...state._reactionInFlight, [messageId]: emoji },
       messages: state.messages.map((m) =>
@@ -316,11 +318,12 @@ export const useChatStore = create((set, get) => ({
         delete nextInFlight[messageId];
         return {
           _reactionInFlight: nextInFlight,
-          messages: state.messages.map((m) => m._id === messageId ? res.data : m),
+          // Server response is authoritative — replaces optimistic state
+          messages: state.messages.map((m) => m._id === messageId ? { ...res.data, status: m.status } : m),
         };
       });
     } catch (error) {
-      // Rollback to snapshot
+      // Rollback to pre-optimistic state
       set((state) => {
         const nextInFlight = { ...state._reactionInFlight };
         delete nextInFlight[messageId];
@@ -350,6 +353,7 @@ export const useChatStore = create((set, get) => ({
     if (!selectedUser) return;
 
     const socket = useAuthStore.getState().socket;
+    if (!socket) return; // Guard: socket may not be connected yet
 
     // Always clean up existing listeners before re-subscribing to avoid duplicates
     socket.off("newMessage");
@@ -360,18 +364,22 @@ export const useChatStore = create((set, get) => ({
     socket.off("typing");
     socket.off("stopTyping");
 
-    socket.on("newMessage", (newMessage) => {
-      const isFromSelectedUser =
-        newMessage.senderId === selectedUser._id ||
-        newMessage.receiverId === selectedUser._id;
+    const selectedUserId = String(selectedUser._id);
 
-      if (!isFromSelectedUser) {
-        // Mark sender as unread when not in conversation
-        get().markUnread(newMessage.senderId);
-        // Update lastMessage on user card
+    socket.on("newMessage", (newMessage) => {
+      const msgSenderId = String(newMessage.senderId?._id ?? newMessage.senderId);
+      const msgReceiverId = String(newMessage.receiverId?._id ?? newMessage.receiverId);
+
+      const isRelevant =
+        msgSenderId === selectedUserId ||
+        msgReceiverId === selectedUserId;
+
+      if (!isRelevant) {
+        // Message is from a different conversation — mark as unread on the sidebar
+        get().markUnread(msgSenderId);
         set((state) => ({
           users: state.users.map(u =>
-            u._id === newMessage.senderId ? { ...u, lastMessage: newMessage } : u
+            String(u._id) === msgSenderId ? { ...u, lastMessage: newMessage } : u
           )
         }));
         return;
@@ -380,10 +388,10 @@ export const useChatStore = create((set, get) => ({
       set((state) => {
         const msgs = state.messages;
 
-        // Deduplication: if message with this _id already in state, skip
+        // Deduplication: if exact _id already in state, skip entirely
         if (msgs.some((m) => m._id === newMessage._id)) return {};
 
-        // Deduplication by clientMessageId: replace optimistic placeholder if found
+        // Deduplication by clientMessageId: replace optimistic placeholder in-place
         if (newMessage.clientMessageId) {
           const optimisticIdx = msgs.findIndex(
             (m) => m.clientMessageId === newMessage.clientMessageId
@@ -394,17 +402,17 @@ export const useChatStore = create((set, get) => ({
             return {
               messages: updatedMsgs,
               users: state.users.map(u =>
-                u._id === selectedUser._id ? { ...u, lastMessage: newMessage } : u
+                String(u._id) === selectedUserId ? { ...u, lastMessage: newMessage } : u
               ),
             };
           }
         }
 
-        // Brand new incoming message
+        // Brand new incoming message from the other party
         return {
           messages: [...msgs, { ...newMessage, status: "sent" }],
           users: state.users.map(u =>
-            u._id === selectedUser._id ? { ...u, lastMessage: newMessage } : u
+            String(u._id) === selectedUserId ? { ...u, lastMessage: newMessage } : u
           ),
         };
       });
@@ -435,17 +443,19 @@ export const useChatStore = create((set, get) => ({
     });
 
     socket.on("typing", ({ senderId }) => {
-      if (senderId === selectedUser._id) {
+      if (String(senderId) === selectedUserId) {
         set((state) => ({ typingUsers: { ...state.typingUsers, [senderId]: true } }));
       }
     });
 
     socket.on("stopTyping", ({ senderId }) => {
-      set((state) => {
-        const next = { ...state.typingUsers };
-        delete next[senderId];
-        return { typingUsers: next };
-      });
+      if (String(senderId) === selectedUserId) {
+        set((state) => {
+          const next = { ...state.typingUsers };
+          delete next[senderId];
+          return { typingUsers: next };
+        });
+      }
     });
 
     // Update contact list when a user updates their profile
@@ -478,6 +488,7 @@ export const useChatStore = create((set, get) => ({
 
   unsubscribeFromMessages: () => {
     const socket = useAuthStore.getState().socket;
+    if (!socket) return; // Guard: socket may be null during reconnection
     socket.off("newMessage");
     socket.off("messageEdited");
     socket.off("messageDeleted");

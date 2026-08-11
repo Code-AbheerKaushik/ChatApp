@@ -25,6 +25,13 @@ export const getUsersForSidebar = async (req, res) => {
       })
     );
 
+    // Sort: conversations with messages first, ordered by most recent message
+    usersWithLastMessage.sort((a, b) => {
+      const aTime = a.lastMessage?.createdAt ? new Date(a.lastMessage.createdAt).getTime() : 0;
+      const bTime = b.lastMessage?.createdAt ? new Date(b.lastMessage.createdAt).getTime() : 0;
+      return bTime - aTime;
+    });
+
     res.status(200).json(usersWithLastMessage);
   } catch (error) {
     console.error("Error in getUsersForSidebar: ", error.message);
@@ -37,12 +44,16 @@ export const getMessages = async (req, res) => {
     const { id: userToChatId } = req.params;
     const myId = req.user._id;
 
+    // Authorization: only allow if the user is part of this conversation
+    // (since this is 1-to-1, userToChatId must be a real user)
     const messages = await Message.find({
       $or: [
         { senderId: myId, receiverId: userToChatId },
         { senderId: userToChatId, receiverId: myId },
       ],
-    }).populate("replyTo");
+    })
+      .sort({ createdAt: 1 }) // Always return in chronological order
+      .populate("replyTo");
 
     res.status(200).json(messages);
   } catch (error) {
