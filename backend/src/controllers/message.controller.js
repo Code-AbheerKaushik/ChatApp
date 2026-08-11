@@ -4,6 +4,39 @@ import Message from "../models/message.model.js";
 import cloudinary from "../lib/cloudinary.js";
 import { getReceiverSocketId, io } from "../lib/socket.js";
 
+const MAX_MEDIA_BYTES = 20 * 1024 * 1024;
+const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm", "audio/webm", "audio/mpeg", "audio/ogg", "application/pdf", "text/plain"]);
+
+const sniffMedia = (dataUrl) => {
+  const match = /^data:([^;,]+);base64,(.+)$/s.exec(dataUrl || "");
+  if (!match) throw new Error("Invalid file data");
+  const declaredMime = match[1].toLowerCase();
+  const buffer = Buffer.from(match[2], "base64");
+  if (!buffer.length || buffer.length > MAX_MEDIA_BYTES) throw new Error("File exceeds the 20 MB limit");
+  const signature = buffer.subarray(0, 16);
+  const is = (hex) => signature.subarray(0, hex.length / 2).toString("hex") === hex;
+  let detected;
+  if (is("ffd8ff")) detected = "image/jpeg";
+  else if (is("89504e470d0a1a0a")) detected = "image/png";
+  else if (signature.subarray(0, 4).toString() === "RIFF" && signature.subarray(8, 12).toString() === "WEBP") detected = "image/webp";
+  else if (signature.subarray(0, 6).toString() === "GIF87a" || signature.subarray(0, 6).toString() === "GIF89a") detected = "image/gif";
+  else if (signature.subarray(4, 8).toString() === "ftyp") detected = "video/mp4";
+  else if (signature.subarray(0, 4).toString() === "\x1A\x45\xDF\xA3") detected = declaredMime === "audio/webm" ? "audio/webm" : "video/webm";
+  else if (is("25504446")) detected = "application/pdf";
+  else if (is("494433") || (buffer[0] === 0xff && (buffer[1] & 0xe0) === 0xe0)) detected = "audio/mpeg";
+  else if (signature.subarray(0, 4).toString() === "OggS") detected = "audio/ogg";
+  else if (declaredMime === "text/plain") detected = "text/plain";
+  if (!detected || detected !== declaredMime || !ALLOWED_TYPES.has(detected)) throw new Error("Unsupported or mismatched file type");
+  return { mimeType: detected, size: buffer.length };
+};
+
+const mediaKind = (mimeType) => mimeType.startsWith("image/") ? "image" : mimeType.startsWith("video/") ? "video" : mimeType.startsWith("audio/") ? "audio" : "document";
+const serializeMessage = (message) => {
+  const plain = message.toObject ? message.toObject() : message;
+  if (plain.media?.length) plain.media = plain.media.map((media) => ({ ...media, accessUrl: `/api/messages/media/${plain._id}/${media._id}` }));
+  return plain;
+};
+
 export const getUsersForSidebar = async (req, res) => {
   try {
     const loggedInUserId = req.user._id;
@@ -86,7 +119,7 @@ export const getMessages = async (req, res) => {
       .sort({ createdAt: 1 })
       .populate("replyTo");
 
-    res.status(200).json(messages);
+    res.status(200).json(messages.map(serializeMessage));
   } catch (error) {
     console.log("Error in getMessages controller: ", error.message);
     res.status(500).json({ error: "Internal server error" });
@@ -95,7 +128,7 @@ export const getMessages = async (req, res) => {
 
 export const sendMessage = async (req, res) => {
   try {
-    const { text, image, file, fileType, replyTo, clientMessageId } = req.body;
+    const { text, image, file, fileType, media = [], replyTo, clientMessageId } = req.body;
     const { id: receiverId } = req.params;
     const senderId = req.user._id;
 
@@ -107,16 +140,26 @@ export const sendMessage = async (req, res) => {
       }
     }
 
+    if (!text?.trim() && !image && !file && !media.length) return res.status(400).json({ error: "A message needs text or media" });
+    if (!Array.isArray(media) || media.length > 10) return res.status(400).json({ error: "Send up to 10 files at once" });
+    const uploadedMedia = [];
+    for (const item of media) {
+      const inspected = sniffMedia(item.data);
+      const kind = mediaKind(inspected.mimeType);
+      const result = await cloudinary.uploader.upload(item.data, { resource_type: kind === "document" ? "raw" : kind === "audio" ? "video" : kind, type: "authenticated", filename_override: String(item.name || "attachment").slice(0, 160) });
+      uploadedMedia.push({ publicId: result.public_id, resourceType: result.resource_type, kind, fileName: String(item.name || "attachment").slice(0, 160), mimeType: inspected.mimeType, size: result.bytes || inspected.size, width: result.width, height: result.height, duration: result.duration, format: result.format });
+    }
     let imageUrl;
     if (image) {
-      // Upload base64 image to cloudinary
+      const inspected = sniffMedia(image);
+      if (!inspected.mimeType.startsWith("image/")) return res.status(400).json({ error: "Invalid image" });
       const uploadResponse = await cloudinary.uploader.upload(image);
       imageUrl = uploadResponse.secure_url;
     }
 
     let fileUrl;
     if (file) {
-      // Upload raw base64 (audio/video/document) to cloudinary
+      sniffMedia(file);
       const uploadResponse = await cloudinary.uploader.upload(file, {
         resource_type: "auto",
       });
@@ -134,6 +177,7 @@ export const sendMessage = async (req, res) => {
       image: imageUrl,
       file: fileUrl,
       fileType,
+      media: uploadedMedia,
       replyTo: replyTo || null,
       clientMessageId: clientMessageId || null,
       status: initialStatus,
@@ -143,7 +187,7 @@ export const sendMessage = async (req, res) => {
     await newMessage.save();
 
     // Populate replyTo for realtime message delivery
-    const populatedMessage = await Message.findById(newMessage._id).populate("replyTo");
+    const populatedMessage = serializeMessage(await Message.findById(newMessage._id).populate("replyTo"));
 
     if (receiverSocketId) {
       io.to(receiverSocketId).emit("newMessage", populatedMessage);
@@ -154,6 +198,36 @@ export const sendMessage = async (req, res) => {
     console.log("Error in sendMessage controller: ", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
+};
+
+// Global-search navigation gets only a small window around the result.
+export const getMessageContext = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const target = await Message.findOne({ _id: req.params.id, $or: [{ senderId: userId }, { receiverId: userId }] });
+    if (!target) return res.status(404).json({ error: "Message not found" });
+    const peerId = String(target.senderId) === String(userId) ? target.receiverId : target.senderId;
+    const conversation = { $or: [{ senderId: userId, receiverId: peerId }, { senderId: peerId, receiverId: userId }] };
+    const [before, after] = await Promise.all([
+      Message.find({ $and: [conversation, { createdAt: { $lt: target.createdAt } }] }).sort({ createdAt: -1 }).limit(25).populate("replyTo"),
+      Message.find({ $and: [conversation, { createdAt: { $gte: target.createdAt } }] }).sort({ createdAt: 1 }).limit(26).populate("replyTo"),
+    ]);
+    res.json({ targetId: target._id, messages: [...before.reverse(), ...after].map(serializeMessage) });
+  } catch (error) {
+    console.error("Error loading message context:", error.message);
+    res.status(500).json({ error: "Could not load message context" });
+  }
+};
+
+export const streamMedia = async (req, res) => {
+  try {
+    const message = await Message.findOne({ _id: req.params.messageId, $or: [{ senderId: req.user._id }, { receiverId: req.user._id }] });
+    if (!message) return res.status(404).json({ error: "Media not found" });
+    const media = message.media.id(req.params.mediaId);
+    if (!media) return res.status(404).json({ error: "Media not found" });
+    const url = cloudinary.url(media.publicId, { resource_type: media.resourceType, type: "authenticated", sign_url: true, secure: true });
+    res.redirect(302, url);
+  } catch (error) { res.status(500).json({ error: "Unable to load media" }); }
 };
 
 export const forwardMessage = async (req, res) => {
@@ -179,11 +253,11 @@ export const forwardMessage = async (req, res) => {
       const receiverSocketId = getReceiverSocketId(receiverId);
       const message = await Message.create({
         senderId, receiverId, text: original.text, image: original.image, file: original.file,
-        fileType: original.fileType, clientMessageId: key,
+        fileType: original.fileType, media: original.media?.map((media) => ({ ...media.toObject(), _id: undefined })) || [], clientMessageId: key,
         forwardedFrom: { messageId: original._id, senderId: original.senderId, forwardedAt: new Date() },
         status: receiverSocketId ? "delivered" : "sent", deliveredAt: receiverSocketId ? new Date() : undefined,
       });
-      const populated = await Message.findById(message._id).populate("replyTo");
+      const populated = serializeMessage(await Message.findById(message._id).populate("replyTo"));
       if (receiverSocketId) io.to(receiverSocketId).emit("newMessage", populated);
       return populated;
     }));
@@ -278,7 +352,7 @@ export const deleteMessage = async (req, res) => {
     const { id: messageId } = req.params;
     const userId = req.user._id;
 
-    const message = await Message.findById(messageId);
+    const message = await Message.findOne({ _id: messageId, $or: [{ senderId: userId }, { receiverId: userId }] });
     if (!message) {
       return res.status(404).json({ error: "Message not found" });
     }
@@ -309,7 +383,7 @@ export const reactToMessage = async (req, res) => {
     const { emoji } = req.body;
     const userId = req.user._id;
 
-    const message = await Message.findById(messageId);
+    const message = await Message.findOne({ _id: messageId, $or: [{ senderId: req.user._id }, { receiverId: req.user._id }] });
     if (!message) {
       return res.status(404).json({ error: "Message not found" });
     }

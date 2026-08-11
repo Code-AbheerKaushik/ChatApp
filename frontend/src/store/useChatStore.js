@@ -13,6 +13,7 @@ const saveLocal = (key, value) => localStorage.setItem(key, JSON.stringify(value
 // Generate a unique client-side message ID for idempotency
 const generateClientMessageId = () =>
   `cmid_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+let latestSearchRequest = 0;
 
 // Optimistically compute reactions for a message without waiting for server
 const applyOptimisticReaction = (message, userId, emoji) => {
@@ -67,6 +68,7 @@ export const useChatStore = create((set, get) => ({
   globalSearchHasMore: false,
   globalSearchLoading: false,
   navigationTargetMessageId: null,
+  savedMessagesVersion: 0,
 
   // --- In-flight reaction locks (prevent rapid duplicate calls) ---
   _reactionInFlight: {}, // { messageId: emoji }
@@ -88,16 +90,18 @@ export const useChatStore = create((set, get) => ({
     else localStorage.removeItem(`chatty_draft_${conversationId}`);
   },
   searchMessages: async (query, page = 1) => {
+    const requestId = ++latestSearchRequest;
     if (query.trim().length < 2) return set({ globalSearchResults: [], globalSearchHasMore: false });
     set({ globalSearchLoading: true });
     try {
       const res = await axiosInstance.get("/messages/search", { params: { q: query, page } });
+      if (requestId !== latestSearchRequest) return;
       set((state) => ({
         globalSearchResults: page === 1 ? res.data.results : [...state.globalSearchResults, ...res.data.results],
         globalSearchHasMore: res.data.hasMore,
       }));
-    } catch { toast.error("Message search failed"); }
-    finally { set({ globalSearchLoading: false }); }
+    } catch { if (requestId === latestSearchRequest) toast.error("Message search failed"); }
+    finally { if (requestId === latestSearchRequest) set({ globalSearchLoading: false }); }
   },
   openMessageResult: (message) => {
     const authUser = useAuthStore.getState().authUser;
@@ -179,7 +183,7 @@ export const useChatStore = create((set, get) => ({
       });
       set({ users: res.data, unreadCounts: counts });
     } catch (error) {
-      toast.error(error.response?.data?.message || "Failed to load users");
+      toast.error(error?.response?.data?.message || "Failed to load users");
     } finally {
       set({ isUsersLoading: false });
     }
@@ -194,10 +198,19 @@ export const useChatStore = create((set, get) => ({
       get().clearUnread(userId);
       await get().markMessagesAsRead(userId);
     } catch (error) {
-      toast.error(error.response?.data?.message || "Failed to load messages");
+      toast.error(error?.response?.data?.message || "Failed to load messages");
     } finally {
       set({ isMessagesLoading: false });
     }
+  },
+  getMessageContext: async (messageId) => {
+    set({ isMessagesLoading: true });
+    try {
+      const res = await axiosInstance.get(`/messages/around/${messageId}`);
+      set({ messages: res.data.messages, navigationTargetMessageId: res.data.targetId });
+    } catch (error) {
+      toast.error(error?.response?.data?.error || "Failed to load message location");
+    } finally { set({ isMessagesLoading: false }); }
   },
 
   markMessagesAsRead: async (senderId) => {
@@ -234,6 +247,7 @@ export const useChatStore = create((set, get) => ({
       image: messageData.image ? messageData.image : null, // local data URL for preview
       file: messageData.file ? messageData.file : null,
       fileType: messageData.fileType || null,
+      media: (messageData.media || []).map((media) => ({ ...media, url: media.data, fileName: media.name, mimeType: media.type, kind: media.type?.startsWith("image/") ? "image" : media.type?.startsWith("video/") ? "video" : media.type?.startsWith("audio/") ? "audio" : "document" })),
       replyTo: get().replyToMessage || null,
       reactions: [],
       createdAt: new Date().toISOString(),
@@ -285,7 +299,9 @@ export const useChatStore = create((set, get) => ({
         ),
       }));
       toast.error("Failed to send — tap to retry");
+      return false;
     }
+    return true;
   },
 
   // --- Retry a failed message ---
@@ -305,6 +321,7 @@ export const useChatStore = create((set, get) => ({
         image: failedMessage.image,
         file: failedMessage.file,
         fileType: failedMessage.fileType,
+        media: failedMessage.media?.map((media) => ({ name: media.name || media.fileName, type: media.type || media.mimeType, size: media.size, data: media.data || media.url })).filter((media) => media.data) || [],
         replyTo: failedMessage.replyTo?._id || failedMessage.replyTo || undefined,
         clientMessageId: failedMessage.clientMessageId, // Same ID = idempotency on backend
       };
@@ -433,18 +450,39 @@ export const useChatStore = create((set, get) => ({
     }) }));
     try {
       const res = await axiosInstance.put(`/messages/star/${messageId}`);
-      set((state) => ({ messages: state.messages.map((m) => m._id === messageId ? { ...res.data, status: m.status } : m) }));
+      set((state) => ({ messages: state.messages.map((m) => m._id === messageId ? { ...res.data, status: m.status } : m), savedMessagesVersion: state.savedMessagesVersion + 1 }));
     } catch { set({ messages: before }); toast.error("Could not update saved message"); }
   },
   forwardMessage: async (message, recipientIds) => {
     const clientForwardId = generateClientMessageId();
+    const selectedUser = get().selectedUser;
+    const activeDestination = selectedUser && recipientIds.some((id) => String(id) === String(selectedUser._id));
+    const temporaryId = `forward_${clientForwardId}`;
+    if (activeDestination) set((state) => ({
+      messages: [...state.messages, {
+        ...message, _id: temporaryId, senderId: useAuthStore.getState().authUser._id,
+        receiverId: selectedUser._id, clientMessageId: clientForwardId,
+        forwardedFrom: { messageId: message._id }, status: "sending",
+        forwardPayload: { sourceId: message._id, recipientIds },
+      }],
+    }));
     try {
-      await axiosInstance.post(`/messages/forward/${message._id}`, { recipientIds, clientForwardId });
+      const res = await axiosInstance.post(`/messages/forward/${message._id}`, { recipientIds, clientForwardId });
+      if (activeDestination) {
+        const confirmed = res.data.find((item) => String(item.receiverId?._id || item.receiverId) === String(selectedUser._id));
+        if (confirmed) set((state) => ({ messages: state.messages.map((item) => item._id === temporaryId ? confirmed : item) }));
+      }
       toast.success(`Forwarded to ${recipientIds.length} conversation${recipientIds.length === 1 ? "" : "s"}`);
     } catch (error) {
+      if (activeDestination) set((state) => ({ messages: state.messages.map((item) => item._id === temporaryId ? { ...item, status: "failed" } : item) }));
       toast.error(error.response?.data?.error || "Forward failed — try again");
       throw error;
     }
+  },
+  retryForwardMessage: async (failedMessage) => {
+    if (!failedMessage.forwardPayload) return;
+    set((state) => ({ messages: state.messages.filter((message) => message._id !== failedMessage._id) }));
+    return get().forwardMessage({ _id: failedMessage.forwardPayload.sourceId }, failedMessage.forwardPayload.recipientIds);
   },
 
   // --- Socket subscriptions ---
@@ -591,7 +629,7 @@ export const useChatStore = create((set, get) => ({
     });
 
     // Delivery and Read Receipt Listeners
-    socket.on("messagesDelivered", ({ receiverId, messageIds }) => {
+    socket.on("messagesDelivered", ({ messageIds }) => {
       set((state) => ({
         messages: state.messages.map((m) =>
           messageIds.includes(m._id) && m.status !== "read"
@@ -601,7 +639,7 @@ export const useChatStore = create((set, get) => ({
       }));
     });
 
-    socket.on("messagesRead", ({ readBy, messageIds }) => {
+    socket.on("messagesRead", ({ messageIds }) => {
       set((state) => ({
         messages: state.messages.map((m) =>
           messageIds.includes(m._id) ? { ...m, status: "read", readAt: new Date() } : m
@@ -654,7 +692,10 @@ export const useChatStore = create((set, get) => ({
   },
 
   setSelectedUser: (selectedUser) => {
-    set({ selectedUser, conversationSearchQuery: "", conversationSearchOpen: false, replyToMessage: null });
+    // Clear navigationTargetMessageId so a stale target doesn't
+    // trigger getMessageContext when switching to a new conversation.
+    // openMessageResult() re-sets it immediately after calling setSelectedUser.
+    set({ selectedUser, conversationSearchQuery: "", conversationSearchOpen: false, replyToMessage: null, navigationTargetMessageId: null });
     if (selectedUser) {
       get().clearUnread(selectedUser._id);
       get().markMessagesAsRead(selectedUser._id);

@@ -13,6 +13,8 @@ import {
   searchMessages,
   toggleStarMessage,
   getStarredMessages,
+  streamMedia,
+  getMessageContext,
 } from "../controllers/message.controller.js";
 
 const router = express.Router();
@@ -20,6 +22,8 @@ const router = express.Router();
 router.get("/users", protectRoute, getUsersForSidebar);
 router.get("/search", protectRoute, searchMessages);
 router.get("/starred", protectRoute, getStarredMessages);
+router.get("/media/:messageId/:mediaId", protectRoute, streamMedia);
+router.get("/around/:id", protectRoute, getMessageContext);
 router.get("/:id", protectRoute, getMessages);
 
 router.post("/send/:id", protectRoute, sendMessage);

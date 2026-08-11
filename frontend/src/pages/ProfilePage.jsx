@@ -19,8 +19,9 @@ import PublicProfileActions from "../components/profile/PublicProfileActions";
 import PublicPersonalInfo from "../components/profile/PublicPersonalInfo";
 import PublicStatsCard from "../components/profile/PublicStatsCard";
 import DpLightbox from "../components/profile/DpLightbox";
+import SavedMessagesSection from "../components/profile/SavedMessagesSection";
 import {
-  ArrowLeft, UserCheck, User, Shield, Bell, Palette, Database, Lock, Image, Loader2,
+  ArrowLeft, UserCheck, User, Shield, Bell, Palette, Database, Lock, Image, Loader2, Star,
 } from "lucide-react";
 
 const ProfilePage = () => {
@@ -85,6 +86,7 @@ const ProfilePage = () => {
     { id: "storage", label: "Storage", icon: Database },
     { id: "security", label: "Security", icon: Lock },
     { id: "media", label: "Media", icon: Image },
+    { id: "saved", label: "Saved", icon: Star },
   ];
 
   // Public-profile tabs (read-only, settings hidden)
@@ -197,6 +199,7 @@ const ProfilePage = () => {
                     {activeTab === "storage" && (<><StorageDataSection /><MediaSection /></>)}
                     {activeTab === "security" && (<><SecuritySection /><AccountSection /></>)}
                     {activeTab === "media" && (<><MediaSection /><StorageDataSection /></>)}
+                    {activeTab === "saved" && <SavedMessagesSection />}
                   </div>
                 )}
 

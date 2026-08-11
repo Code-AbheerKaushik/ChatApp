@@ -4,21 +4,13 @@ import {
   Send, X, Paperclip, Mic, MicOff, SmilePlus,
   Image as ImageIcon, FileText, Reply
 } from "lucide-react";
+import EmojiPicker from "emoji-picker-react";
 import toast from "react-hot-toast";
 
-const EMOJI_LIST = [
-  "😀","😂","🥰","😍","😎","😭","😤","🥳","😴","🤔",
-  "👍","👎","❤️","🔥","💯","✅","🎉","🙏","🤝","💪",
-  "😮","😢","😡","🤣","😅","🤗","🤩","😬","😱","🤯",
-  "🌹","🌟","🏆","🎯","💡","🚀","⚡","🌈","💎","🍕",
-];
 
 const MessageInput = () => {
   const [text, setText] = useState("");
-  const [imagePreview, setImagePreview] = useState(null);
-  const [filePreview, setFilePreview] = useState(null);
-  const [fileData, setFileData] = useState(null);
-  const [fileType, setFileType] = useState(null);
+  const [mediaItems, setMediaItems] = useState([]);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState(null);
@@ -31,6 +23,7 @@ const MessageInput = () => {
   const audioChunksRef = useRef([]);
   const typingTimerRef = useRef(null);
   const draftTimerRef = useRef(null);
+  const preserveDraftUntilSendResultRef = useRef(false);
   const isSendingRef = useRef(false); // Prevent double-submit
 
   const {
@@ -52,11 +45,12 @@ const MessageInput = () => {
   useEffect(() => {
     if (!selectedUser?._id) return;
     setText(getDraft(selectedUser._id));
-    setImagePreview(null); setFileData(null); setFilePreview(null); setFileType(null); setAudioBlob(null);
+    setMediaItems([]); setAudioBlob(null);
   }, [selectedUser?._id, getDraft]);
 
   useEffect(() => {
     if (!selectedUser?._id) return;
+    if (!text && preserveDraftUntilSendResultRef.current) return;
     clearTimeout(draftTimerRef.current);
     draftTimerRef.current = setTimeout(() => saveDraft(selectedUser._id, text), 350);
     return () => clearTimeout(draftTimerRef.current);
@@ -78,32 +72,18 @@ const MessageInput = () => {
     }, 1500);
   }, [emitTyping, emitStopTyping]);
 
-  const handleImageChange = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) { toast.error("Please select an image file"); return; }
-    const reader = new FileReader();
-    reader.onloadend = () => setImagePreview(reader.result);
-    reader.readAsDataURL(file);
-    setAttachMenuOpen(false);
+  const addFiles = async (files) => {
+    const selected = Array.from(files || []);
+    if (!selected.length) return;
+    if (mediaItems.length + selected.length > 10) return toast.error("You can attach up to 10 files");
+    const allowed = /^(image\/(jpeg|png|webp|gif)|video\/(mp4|webm)|audio\/(webm|mpeg|ogg)|application\/pdf|text\/plain)$/;
+    const valid = selected.filter((file) => file.size <= 20 * 1024 * 1024 && allowed.test(file.type));
+    if (valid.length !== selected.length) toast.error("Unsupported file or file over 20 MB");
+    const read = (file) => new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); });
+    const items = await Promise.all(valid.map(async (file) => ({ id: `${file.name}-${file.lastModified}-${Math.random()}`, name: file.name, type: file.type, size: file.size, data: await read(file), preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null })));
+    setMediaItems((current) => [...current, ...items]); setAttachMenuOpen(false);
   };
-
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const type = file.type.startsWith("video/") ? "video" : "document";
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setFileData(reader.result);
-      setFilePreview(file.name);
-      setFileType(type);
-    };
-    reader.readAsDataURL(file);
-    setAttachMenuOpen(false);
-  };
-
-  const removeImage = () => { setImagePreview(null); if (fileInputRef.current) fileInputRef.current.value = ""; };
-  const removeFile = () => { setFileData(null); setFilePreview(null); setFileType(null); if (docInputRef.current) docInputRef.current.value = ""; };
+  const removeMedia = (id) => setMediaItems((current) => { const item = current.find((candidate) => candidate.id === id); if (item?.preview) URL.revokeObjectURL(item.preview); return current.filter((candidate) => candidate.id !== id); });
   const removeAudio = () => setAudioBlob(null);
 
   const startRecording = async () => {
@@ -134,7 +114,7 @@ const MessageInput = () => {
 
     // Guard: prevent double-submit from rapid clicks or Enter key
     if (isSendingRef.current) return;
-    if (!text.trim() && !imagePreview && !fileData && !audioBlob) return;
+    if (!text.trim() && !mediaItems.length && !audioBlob) return;
 
     isSendingRef.current = true;
     emitStopTyping();
@@ -142,19 +122,14 @@ const MessageInput = () => {
 
     // Capture current values before clearing
     const currentText = text.trim();
-    const currentImage = imagePreview;
-    const currentFileData = fileData;
-    const currentFileType = fileType;
+    const currentMedia = mediaItems;
     const currentAudioBlob = audioBlob;
     const currentReplyTo = replyToMessage?._id;
 
     // ── INSTANT CLEAR ────────────────────────────────────────────
     setText("");
-    saveDraft(selectedUser._id, "");
-    setImagePreview(null);
-    setFileData(null);
-    setFilePreview(null);
-    setFileType(null);
+    preserveDraftUntilSendResultRef.current = true;
+    setMediaItems([]);
     setAudioBlob(null);
     clearReplyToMessage();
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -182,14 +157,16 @@ const MessageInput = () => {
 
       // Fire-and-forget: sendMessage handles optimistic insert + backend call.
       // Each call gets its own clientMessageId so duplicates are impossible.
-      sendMessage({
+      const sent = await sendMessage({
         text: currentText,
-        image: currentImage || undefined,
-        file: currentFileData || audioBase64 || undefined,
-        fileType: currentAudioBlob ? "audio" : currentFileType || undefined,
+        media: [...currentMedia.map(({ name, type, size, data }) => ({ name, type, size, data })), ...(audioBase64 ? [{ name: "Voice message.webm", type: "audio/webm", size: currentAudioBlob.size, data: audioBase64 }] : [])],
         replyTo: currentReplyTo || undefined,
       });
+      preserveDraftUntilSendResultRef.current = false;
+      if (sent) saveDraft(selectedUser._id, "");
+      else if (currentText) setText((value) => value || currentText);
     } catch (error) {
+      preserveDraftUntilSendResultRef.current = false;
       // sendMessage catches its own errors internally; this is a safety net.
       console.error("Unexpected send error:", error);
     }
@@ -212,25 +189,9 @@ const MessageInput = () => {
       )}
 
       {/* Attachment Previews */}
-      {(imagePreview || filePreview || audioBlob) && (
+      {(mediaItems.length > 0 || audioBlob) && (
         <div className="flex flex-wrap gap-2 px-4 py-2 border-b border-base-300">
-          {imagePreview && (
-            <div className="relative">
-              <img src={imagePreview} alt="Preview" className="h-16 w-16 object-cover rounded-xl border border-base-300" />
-              <button onClick={removeImage} className="absolute -top-1.5 -right-1.5 btn btn-xs btn-circle bg-base-100 border border-base-300">
-                <X className="size-2.5" />
-              </button>
-            </div>
-          )}
-          {filePreview && (
-            <div className="relative flex items-center gap-2 bg-base-200 rounded-xl px-3 py-2">
-              <FileText className="size-5 text-primary flex-shrink-0" />
-              <span className="text-xs max-w-[100px] truncate">{filePreview}</span>
-              <button onClick={removeFile} className="btn btn-ghost btn-xs btn-circle">
-                <X className="size-2.5" />
-              </button>
-            </div>
-          )}
+          {mediaItems.map((item) => <div key={item.id} className="relative flex items-center gap-2 bg-base-200 rounded-xl px-2 py-2">{item.preview ? <img src={item.preview} alt={item.name} className="h-16 w-16 object-cover rounded-lg" /> : <FileText className="size-5 text-primary" />}<span className="text-xs max-w-[90px] truncate">{item.name}</span><button onClick={() => removeMedia(item.id)} className="btn btn-ghost btn-xs btn-circle"><X className="size-2.5" /></button></div>)}
           {audioBlob && (
             <div className="relative flex items-center gap-2 bg-primary/10 rounded-xl px-3 py-2">
               <Mic className="size-4 text-primary" />
@@ -245,24 +206,24 @@ const MessageInput = () => {
 
       {/* Emoji Picker */}
       {emojiOpen && (
-        <div className="px-4 py-3 border-b border-base-300 grid grid-cols-10 gap-1 max-h-32 overflow-y-auto">
-          {EMOJI_LIST.map((emoji) => (
-            <button
-              key={emoji}
-              onClick={() => { setText((t) => t + emoji); textareaRef.current?.focus(); }}
-              className="text-xl hover:scale-125 transition-transform text-center py-0.5"
-            >
-              {emoji}
-            </button>
-          ))}
+        <div className="border-b border-base-300">
+          <EmojiPicker
+            onEmojiClick={(emojiData) => {
+              setText((t) => t + emojiData.emoji);
+              textareaRef.current?.focus();
+            }}
+            width="100%"
+            height={320}
+            lazyLoadEmojis
+          />
         </div>
       )}
 
       {/* Main Input Row */}
       <div className="flex items-end gap-2 p-3 sm:p-4">
         {/* Hidden file inputs */}
-        <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleImageChange} />
-        <input type="file" accept="video/*,.pdf,.doc,.docx,.txt,.zip" className="hidden" ref={docInputRef} onChange={handleFileChange} />
+        <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple className="hidden" ref={fileInputRef} onChange={(e) => addFiles(e.target.files)} />
+        <input type="file" accept="video/mp4,video/webm,audio/webm,audio/mpeg,audio/ogg,application/pdf,text/plain" multiple className="hidden" ref={docInputRef} onChange={(e) => addFiles(e.target.files)} />
 
         {/* Attach Button */}
         <div className="relative flex-shrink-0">
@@ -331,7 +292,7 @@ const MessageInput = () => {
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={handleSendMessage}
-          disabled={!text.trim() && !imagePreview && !fileData && !audioBlob}
+          disabled={!text.trim() && !mediaItems.length && !audioBlob}
           className="btn btn-primary btn-sm btn-circle flex-shrink-0"
           title="Send"
         >

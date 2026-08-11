@@ -29,6 +29,19 @@ const messageSchema = new mongoose.Schema(
       ref: "Message",
       default: null,
     },
+    // New uploads use this collection. Legacy image/file fields remain supported.
+    media: [{
+      publicId: { type: String, required: true },
+      resourceType: { type: String, enum: ["image", "video", "raw"], required: true },
+      kind: { type: String, enum: ["image", "video", "audio", "document"], required: true },
+      fileName: { type: String, required: true },
+      mimeType: { type: String, required: true },
+      size: { type: Number, required: true },
+      width: Number,
+      height: Number,
+      duration: Number,
+      format: String,
+    }],
     forwardedFrom: {
       messageId: { type: mongoose.Schema.Types.ObjectId, ref: "Message" },
       senderId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },

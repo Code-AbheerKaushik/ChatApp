@@ -172,7 +172,7 @@ const Sidebar = () => {
     pinnedUsers, archivedUsers, mutedUsers, favoriteUsers, unreadUsers, unreadCounts,
     togglePinnedUser, toggleArchivedUser, toggleMutedUser, toggleFavoriteUser,
     markUnread, clearUnread,
-    searchMessages, globalSearchResults, globalSearchHasMore, globalSearchLoading, openMessageResult,
+    searchMessages, globalSearchResults, globalSearchHasMore, globalSearchLoading, openMessageResult, savedMessagesVersion,
   } = useChatStore();
 
   const { onlineUsers } = useAuthStore();
@@ -196,7 +196,7 @@ const Sidebar = () => {
   useEffect(() => {
     if (activeFilter !== "saved") return;
     axiosInstance.get("/messages/starred").then((res) => setSavedMessages(res.data.results)).catch(() => setSavedMessages([]));
-  }, [activeFilter]);
+  }, [activeFilter, savedMessagesVersion]);
 
   const isOnline = useCallback((userId) => onlineUsers.includes(String(userId)), [onlineUsers]);
 

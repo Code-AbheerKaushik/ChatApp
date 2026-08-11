@@ -7,10 +7,11 @@ import { useAuthStore } from "../store/useAuthStore";
 import { formatMessageTime } from "../lib/utils";
 import { Reply, Pencil, Trash2, SmilePlus, Pin, Copy, X, ChevronDown, ArrowDown, Clock, AlertCircle, RotateCcw, Check, CheckCheck, Forward, Star } from "lucide-react";
 import EmojiPicker from "emoji-picker-react";
+import MediaMessage, { mediaUrl } from "./MediaMessage";
 
 const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
 
-const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit, onDelete, onReact, onPin, onStar, onForward, onRetry, conversationSearchQuery, isTarget }) => {
+const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit, onDelete, onReact, onPin, onStar, onForward, onRetry, onOpenImage, conversationSearchQuery, isTarget }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const menuRef = useRef(null);
@@ -47,11 +48,22 @@ const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit
   };
   const onPointerMove = (event) => {
     const start = pointerRef.current;
-    if (!start) return;
+    if (!start || start.cancelled) return;
     const dx = event.clientX - start.x; const dy = event.clientY - start.y;
-    if (Math.abs(dy) > 12 || Math.abs(dx) > 90) { clearTimeout(longPressRef.current); longPressRef.current = null; }
-    if (!start.triggered && Math.abs(dx) > 56 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-      start.triggered = true; clearTimeout(longPressRef.current); onReply(message); navigator.vibrate?.(10);
+    // Cancel if primarily vertical (scrolling) — set flag so swipe cannot fire afterwards
+    if (Math.abs(dy) > 20) {
+      clearTimeout(longPressRef.current); longPressRef.current = null;
+      start.cancelled = true; return;
+    }
+    // Cancel long-press if moved too far horizontally without a clean swipe ratio
+    if (Math.abs(dx) > 100 && Math.abs(dx) <= Math.abs(dy) * 2) {
+      clearTimeout(longPressRef.current); longPressRef.current = null;
+      start.cancelled = true; return;
+    }
+    // Trigger swipe-to-reply: clean rightward horizontal swipe
+    if (!start.triggered && Math.abs(dx) > 56 && Math.abs(dx) > Math.abs(dy) * 2) {
+      start.triggered = true; start.cancelled = true;
+      clearTimeout(longPressRef.current); onReply(message); navigator.vibrate?.(10);
     }
   };
 
@@ -59,7 +71,7 @@ const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit
     <div
       data-message-id={message._id}
       onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={clearGesture} onPointerCancel={clearGesture}
-      onContextMenu={(e) => { if (e.pointerType === "touch") e.preventDefault(); }}
+      onContextMenu={(e) => e.preventDefault()}
       className={`group flex items-end gap-2 relative ${isOwn ? "flex-row-reverse" : "flex-row"} ${isTarget ? "animate-pulse rounded-xl ring-2 ring-warning/70" : ""}`}
     >
       {/* Avatar */}
@@ -95,27 +107,7 @@ const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit
                 : "bg-base-200 text-base-content rounded-bl-xs"
             }`}
           >
-            {/* Image */}
-            {message.image && (
-              <img
-                src={message.image}
-                alt="Attachment"
-                className="max-w-[220px] sm:max-w-[280px] w-full rounded-xl mb-1.5 cursor-pointer object-cover max-h-60"
-              />
-            )}
-
-            {/* File attachment */}
-            {message.file && !message.image && (
-              <a
-                href={message.file}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`flex items-center gap-2 text-sm underline mb-1 ${isOwn ? "text-primary-content/90" : "text-base-content/80"}`}
-              >
-                {message.fileType === "audio" ? "🎤" : message.fileType === "video" ? "🎥" : "📄"}
-                {" "}{message.fileType === "audio" ? "Voice message" : "Attachment"}
-              </a>
-            )}
+            <MediaMessage message={message} onOpenImage={onOpenImage} />
 
             {/* Text */}
             {message.text && (
@@ -153,8 +145,8 @@ const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit
           </div>
 
           {pickerOpen && !isSending && !isFailed && (
-            <div className={`absolute z-40 top-full mt-2 ${isOwn ? "right-0" : "left-0"}`}>
-              <EmojiPicker onEmojiClick={(emoji) => { onReact(message._id, emoji.emoji); setPickerOpen(false); }} width={300} height={360} />
+            <div className={`absolute z-40 bottom-full mb-2 ${isOwn ? "right-0" : "left-0"}`}>
+              <EmojiPicker onEmojiClick={(emoji) => { onReact(message._id, emoji.emoji); setPickerOpen(false); }} width={300} height={360} lazyLoadEmojis />
             </div>
           )}
 
@@ -208,11 +200,11 @@ const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit
         className={`self-center transition-opacity flex-shrink-0 ${menuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
         ref={menuRef}
       >
-        <div className="dropdown dropdown-end">
+        <div className="relative">
           <button className="btn btn-ghost btn-xs btn-circle" tabIndex={0} onClick={() => setMenuOpen((open) => !open)} aria-label="Message options">
             <ChevronDown className="size-3.5" />
           </button>
-          <ul className="dropdown-content z-30 menu p-1 shadow-lg bg-base-100 rounded-xl border border-base-300 w-36 text-sm">
+          {menuOpen && <ul className="absolute right-0 top-full mt-1 z-30 menu p-1 shadow-lg bg-base-100 rounded-xl border border-base-300 w-36 text-sm">
             <li>
               <button className="flex items-center gap-2" onClick={() => onReply(message)}>
                 <Reply className="size-3.5" /> Reply
@@ -248,19 +240,32 @@ const MessageBubble = ({ message, isOwn, authUser, selectedUser, onReply, onEdit
                 </button>
               </li>
             )}
-          </ul>
+          </ul>}
         </div>
       </div>
     </div>
   );
 };
 
+const ImageLightbox = ({ gallery, index, onClose }) => {
+  const [active, setActive] = useState(index); const [scale, setScale] = useState(1); const [loading, setLoading] = useState(true); const [error, setError] = useState(false); const start = useRef(null); const pointers = useRef(new Map()); const pinchDistance = useRef(null); const image = gallery[active];
+  useEffect(() => { const key = (event) => { if (event.key === "Escape") onClose(); if (event.key === "ArrowLeft") setActive((value) => Math.max(0, value - 1)); if (event.key === "ArrowRight") setActive((value) => Math.min(gallery.length - 1, value + 1)); }; window.addEventListener("keydown", key); return () => window.removeEventListener("keydown", key); }, [gallery.length, onClose]);
+  useEffect(() => { setScale(1); setLoading(true); setError(false); }, [active]);
+  return <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center touch-none" onClick={onClose} onWheel={(event) => { event.preventDefault(); setScale((value) => Math.min(4, Math.max(1, value - event.deltaY * .002))); }} onPointerDown={(event) => { pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY }); if (pointers.current.size === 1) start.current = { x: event.clientX, y: event.clientY }; if (pointers.current.size === 2) { const values = [...pointers.current.values()]; pinchDistance.current = Math.hypot(values[0].x - values[1].x, values[0].y - values[1].y); } }} onPointerMove={(event) => { if (!pointers.current.has(event.pointerId)) return; pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY }); if (pointers.current.size === 2) { const values = [...pointers.current.values()]; const distance = Math.hypot(values[0].x - values[1].x, values[0].y - values[1].y); if (pinchDistance.current) setScale((value) => Math.min(4, Math.max(1, value * distance / pinchDistance.current))); pinchDistance.current = distance; } }} onPointerUp={(event) => { pointers.current.delete(event.pointerId); pinchDistance.current = null; if (!start.current || pointers.current.size) return; const dx = event.clientX - start.current.x; if (Math.abs(dx) > 60 && scale === 1) setActive((value) => Math.max(0, Math.min(gallery.length - 1, value + (dx > 0 ? -1 : 1)))); start.current = null; }}>
+    <button className="absolute top-4 right-4 btn btn-circle btn-sm z-10" onClick={onClose}><X className="size-5" /></button>
+    {active > 0 && <button className="absolute left-3 btn btn-circle z-10 hidden sm:flex" onClick={(event) => { event.stopPropagation(); setActive(active - 1); }}>‹</button>}
+    {loading && <span className="loading loading-spinner loading-lg text-white" />}{error && <p className="text-white">Image could not be loaded.</p>}<img src={mediaUrl(image)} alt={image.fileName || "Image"} className={`max-w-[96vw] max-h-[90vh] object-contain transition-transform ${loading || error ? "hidden" : ""}`} style={{ transform: `scale(${scale})` }} onLoad={() => setLoading(false)} onError={() => { setLoading(false); setError(true); }} onClick={(event) => event.stopPropagation()} />
+    {active < gallery.length - 1 && <button className="absolute right-3 btn btn-circle z-10 hidden sm:flex" onClick={(event) => { event.stopPropagation(); setActive(active + 1); }}>›</button>}
+    <div className="absolute bottom-4 flex gap-2 items-center text-white text-xs"><button className="btn btn-xs" onClick={(event) => { event.stopPropagation(); setScale((value) => Math.max(1, value - .5)); }}>−</button><span>{active + 1}/{gallery.length} · {Math.round(scale * 100)}%</span><button className="btn btn-xs" onClick={(event) => { event.stopPropagation(); setScale((value) => Math.min(4, value + .5)); }}>+</button></div>
+  </div>;
+};
+
 const ChatContainer = () => {
   const {
-    messages, getMessages, isMessagesLoading,
+    messages, getMessages, getMessageContext, isMessagesLoading,
     selectedUser, subscribeToMessages, unsubscribeFromMessages,
     editMessage, deleteMessage, reactToMessage, togglePinMessage,
-    setReplyToMessage, retrySendMessage,
+    setReplyToMessage, retrySendMessage, retryForwardMessage,
     conversationSearchQuery, toggleStarMessage, forwardMessage, users,
     navigationTargetMessageId, clearNavigationTarget,
   } = useChatStore();
@@ -269,6 +274,7 @@ const ChatContainer = () => {
   const messagesContainerRef = useRef(null);
   const isFirstLoadRef = useRef(true);
   const prevMessagesLengthRef = useRef(0);
+  const openedSearchContextRef = useRef(null);
 
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [hasNewMessagesBelow, setHasNewMessagesBelow] = useState(false);
@@ -276,6 +282,7 @@ const ChatContainer = () => {
   const [editText, setEditText] = useState("");
   const [forwardingMessage, setForwardingMessage] = useState(null);
   const [forwardTargets, setForwardTargets] = useState([]);
+  const [imageLightbox, setImageLightbox] = useState(null);
 
   // Scroll helper
   const scrollToBottom = useCallback((behavior = "smooth") => {
@@ -303,10 +310,16 @@ const ChatContainer = () => {
 
   // Fetch messages & subscribe socket
   useEffect(() => {
-    getMessages(selectedUser._id);
+    if (navigationTargetMessageId) {
+      openedSearchContextRef.current = navigationTargetMessageId;
+      getMessageContext(navigationTargetMessageId);
+    } else if (openedSearchContextRef.current) {
+      // clearNavigationTarget runs after the targeted window has rendered.
+      openedSearchContextRef.current = null;
+    } else getMessages(selectedUser._id);
     subscribeToMessages();
     return () => unsubscribeFromMessages();
-  }, [selectedUser._id, getMessages, subscribeToMessages, unsubscribeFromMessages]);
+  }, [selectedUser._id, navigationTargetMessageId, getMessages, getMessageContext, subscribeToMessages, unsubscribeFromMessages]);
 
   // Reset scroll flags on user change
   useEffect(() => {
@@ -444,7 +457,8 @@ const ChatContainer = () => {
               onPin={(id) => togglePinMessage(id)}
               onStar={(id) => toggleStarMessage(id)}
               onForward={(message) => { setForwardingMessage(message); setForwardTargets([]); }}
-              onRetry={(msg) => retrySendMessage(msg)}
+              onRetry={(msg) => msg.forwardPayload ? retryForwardMessage(msg) : retrySendMessage(msg)}
+              onOpenImage={(gallery, index) => setImageLightbox({ gallery, index })}
               isTarget={navigationTargetMessageId === message._id}
             />
           ))
@@ -490,6 +504,7 @@ const ChatContainer = () => {
           </div>
         </div>
       )}
+      {imageLightbox && <ImageLightbox gallery={imageLightbox.gallery} index={imageLightbox.index} onClose={() => setImageLightbox(null)} />}
     </div>
   );
 };
