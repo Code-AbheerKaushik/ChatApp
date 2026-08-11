@@ -68,40 +68,34 @@ const ExitConfirmDialog = ({ isOpen, onCancel, onExit }) => {
 };
 
 // ─── useBackHandler ───────────────────────────────────────────────────────────
-// Single, centralized source of truth for Back-button navigation.
+// Centralized source of truth for Back-button navigation.
 //
-// Decision Flow on Back Press:
-// 1. If Keyboard / Active Input is open → Blur input, stop processing.
-// 2. If Modal / Popup / Mobile Chat View is open → Close UI overlay, stop.
-// 3. If Current Page is NOT Home ("/") → Navigate back immediately, stop.
-// 4. If Current Page IS Home ("/") → Immediately show Exit Confirmation Dialog.
+// Rules:
+// 1. If an active input / keyboard is focused → blur input.
+// 2. If a modal / popup / mobile chat view is open → close overlay.
+// 3. If user was on an INNER PAGE (e.g. /profile, /settings) and pressed Back →
+//    Return to previous page (Home). DO NOT show exit dialog.
+// 4. If user was ALREADY ON HOME ("/") and pressed Back →
+//    Show Exit Confirmation Dialog.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const HOME_PATH = "/";
-const SENTINEL_KEY = "_appHomeSentinel";
 
 export const useBackHandler = () => {
   const location = useLocation();
   const [showExitDialog, setShowExitDialog] = useState(false);
 
-  // Ref tracking current pathname BEFORE popstate handling
-  const currentPathRef = useRef(location.pathname);
+  // Ref tracking the settled route pathname BEFORE the popstate event occurs
+  const lastSettledPathRef = useRef(location.pathname);
 
-  // Synchronously update currentPathRef whenever location changes
+  // Keep lastSettledPathRef updated as user navigates through the app
   useEffect(() => {
-    currentPathRef.current = location.pathname;
+    lastSettledPathRef.current = location.pathname;
   }, [location.pathname]);
 
-  // Push sentinel history state on Home mount so back press on Home is intercepted
-  useEffect(() => {
-    if (location.pathname === HOME_PATH && !window.history.state?.[SENTINEL_KEY]) {
-      window.history.pushState({ [SENTINEL_KEY]: true }, "", window.location.href);
-    }
-  }, [location.pathname]);
-
-  // Helper: Check and handle open keyboard or UI overlays (modals, lightboxes, mobile chats)
+  // Helper: Check and close active keyboard or UI overlays (modals, lightboxes, mobile chats)
   const checkAndCloseOverlay = useCallback(() => {
-    // 1. Keyboard / Active text input focus
+    // 1. Active text input / keyboard focus
     const activeEl = document.activeElement;
     if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || activeEl.isContentEditable)) {
       activeEl.blur();
@@ -129,12 +123,11 @@ export const useBackHandler = () => {
       return true;
     }
 
-    // 3. Open DOM Modals / Lightboxes (elements with fixed inset-0 overlay excluding exit dialog)
+    // 3. Open DOM Modals / Lightboxes (fixed inset-0 elements excluding exit dialog)
     const openOverlay = document.querySelector(
       ".fixed.inset-0:not(#exit-confirm-dialog-overlay)"
     );
     if (openOverlay) {
-      // Dispatch Escape key event to trigger active modal close listeners
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, bubbles: true }));
       return true;
     }
@@ -142,32 +135,30 @@ export const useBackHandler = () => {
     return false;
   }, []);
 
-  // Main Back listener (registered once)
+  // Main Back event listener
   useEffect(() => {
-    const handlePopState = (e) => {
-      const pageBeforeBack = currentPathRef.current;
+    const handlePopState = () => {
+      const pathBeforePop = lastSettledPathRef.current;
 
-      // ── Step 1 & 2: Check Keyboard or Open UI Overlays ──────────────────
+      // ── Step 1: Handle active keyboard or open UI overlays ──────────────
       const overlayWasClosed = checkAndCloseOverlay();
       if (overlayWasClosed) {
-        // Re-push sentinel if on Home so future back presses are still intercepted
-        if (pageBeforeBack === HOME_PATH) {
-          window.history.pushState({ [SENTINEL_KEY]: true }, "", window.location.href);
-        }
+        // Restore history entry for current path so location doesn't change
+        window.history.pushState(null, "", window.location.href);
         return;
       }
 
-      // ── Step 3: Inner Page Case (pageBeforeBack !== "/") ─────────────────
-      // If user was on an inner page (Profile, Settings, User Detail, etc.),
-      // allow natural browser/router back navigation. DO NOT show exit prompt.
-      if (pageBeforeBack !== HOME_PATH) {
+      // ── Step 2: Inner page back navigation ───────────────────────────────
+      // If user was on an inner page (/profile, /settings, etc.) when Back was pressed,
+      // allow natural React Router back navigation. DO NOT show exit prompt.
+      if (pathBeforePop !== HOME_PATH) {
         return;
       }
 
-      // ── Step 4: Home Page Case (pageBeforeBack === "/") ──────────────────
-      // User was already on Home with no overlays open. Show Exit Dialog.
-      // Re-push sentinel to prevent immediate browser exit while dialog is open.
-      window.history.pushState({ [SENTINEL_KEY]: true }, "", window.location.href);
+      // ── Step 3: Home page back navigation ────────────────────────────────
+      // User was ALREADY sitting on Home ("/") with no overlays active when Back was pressed.
+      // Hold position on Home and show Exit Confirmation Dialog.
+      window.history.pushState(null, "", window.location.href);
       setShowExitDialog(true);
     };
 
@@ -182,7 +173,6 @@ export const useBackHandler = () => {
 
   const handleExit = useCallback(() => {
     setShowExitDialog(false);
-    // Platform-supported app exit
     if (window.Capacitor?.Plugins?.App?.exitApp) {
       window.Capacitor.Plugins.App.exitApp();
     } else if (navigator.app && navigator.app.exitApp) {
