@@ -39,7 +39,7 @@ const SignUpPage = () => {
     useRef(null), useRef(null), useRef(null)
   ];
 
-  const { signup, isSigningUp, sendOtp, isSendingOtp, verifyOtp, isVerifyingOtp } = useAuthStore();
+  const { signup, isSigningUp, sendOtp, resendOtp, isSendingOtp, verifyOtp, isVerifyingOtp } = useAuthStore();
 
   const fullPhone = `${countryCode}${phoneNumber.replace(/\D/g, "")}`;
 
@@ -91,6 +91,19 @@ const SignUpPage = () => {
     if (ok) {
       setOtpStep("SENT");
       setResendTimer(60);
+      setTimeout(() => otpInputRefs[0]?.current?.focus(), 100);
+    }
+  };
+
+  // Resend OTP handler
+  const handleResendOtp = async () => {
+    if (!phoneNumber || phoneNumber.replace(/\D/g, "").length < 7) {
+      return toast.error("Please enter a valid phone number");
+    }
+    const ok = await resendOtp(fullPhone);
+    if (ok) {
+      setResendTimer(60);
+      setOtpDigits(["", "", "", "", "", ""]);
       setTimeout(() => otpInputRefs[0]?.current?.focus(), 100);
     }
   };
@@ -201,28 +214,30 @@ const SignUpPage = () => {
 
               {/* IDLE state: Phone Input + Send OTP Button */}
               {otpStep === "IDLE" && (
-                <div className="flex gap-2">
-                  <select
-                    value={countryCode}
-                    onChange={(e) => setCountryCode(e.target.value)}
-                    className="select select-bordered select-sm h-10 text-xs rounded-xl bg-base-100"
-                  >
-                    {COUNTRY_CODES.map((c) => (
-                      <option key={c.code} value={c.code}>{c.label}</option>
-                    ))}
-                  </select>
-                  <input
-                    type="tel"
-                    className="input input-bordered input-sm h-10 flex-1 text-sm rounded-xl"
-                    placeholder="9876543210"
-                    value={phoneNumber}
-                    onChange={(e) => setPhoneNumber(e.target.value)}
-                  />
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <div className="flex flex-1 gap-2">
+                    <select
+                      value={countryCode}
+                      onChange={(e) => setCountryCode(e.target.value)}
+                      className="select select-bordered select-sm h-10 text-xs rounded-xl bg-base-100 min-w-[90px]"
+                    >
+                      {COUNTRY_CODES.map((c) => (
+                        <option key={c.code} value={c.code}>{c.label}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="tel"
+                      className="input input-bordered input-sm h-10 flex-1 text-sm rounded-xl"
+                      placeholder="9876543210"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value)}
+                    />
+                  </div>
                   <button
                     type="button"
                     onClick={handleSendOtp}
                     disabled={isSendingOtp || !phoneNumber}
-                    className="btn btn-primary btn-sm h-10 rounded-xl text-xs font-semibold px-4 gap-1.5"
+                    className="btn btn-primary btn-sm h-10 rounded-xl text-xs font-semibold px-4 gap-1.5 w-full sm:w-auto"
                   >
                     {isSendingOtp ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Send OTP"}
                   </button>
@@ -261,12 +276,12 @@ const SignUpPage = () => {
                     ))}
                   </div>
 
-                  <div className="flex items-center justify-between pt-1">
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
                     <button
                       type="button"
-                      onClick={handleSendOtp}
+                      onClick={handleResendOtp}
                       disabled={resendTimer > 0 || isSendingOtp}
-                      className="text-xs text-primary font-semibold hover:underline disabled:text-base-content/40 disabled:no-underline flex items-center gap-1"
+                      className="text-xs text-primary font-semibold hover:underline disabled:text-base-content/40 disabled:no-underline flex items-center justify-center gap-1 w-full sm:w-auto order-2 sm:order-1 h-9"
                     >
                       <RefreshCw className="w-3 h-3" />
                       {resendTimer > 0 ? `Resend in ${resendTimer}s` : "Resend OTP"}
@@ -276,7 +291,7 @@ const SignUpPage = () => {
                       type="button"
                       onClick={handleVerifyOtp}
                       disabled={isVerifyingOtp || otpDigits.join("").length < 6}
-                      className="btn btn-sm btn-primary rounded-xl text-xs px-4 gap-1.5"
+                      className="btn btn-sm btn-primary rounded-xl text-xs px-4 gap-1.5 w-full sm:w-auto order-1 sm:order-2 h-9"
                     >
                       {isVerifyingOtp ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Verify Code"}
                     </button>

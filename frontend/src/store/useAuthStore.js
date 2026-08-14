@@ -25,12 +25,23 @@ export const useAuthStore = create((set, get) => ({
     try {
       const res = await axiosInstance.post("/auth/send-otp", { phone });
       toast.success(res.data.message || "OTP sent successfully!");
-      if (res.data.devOtp) {
-        toast(`DEV OTP Code: ${res.data.devOtp}`, { icon: "🔑", duration: 8000 });
-      }
       return true;
     } catch (error) {
       toast.error(error.response?.data?.message || "Failed to send OTP.");
+      return false;
+    } finally {
+      set({ isSendingOtp: false });
+    }
+  },
+
+  resendOtp: async (phone) => {
+    set({ isSendingOtp: true });
+    try {
+      const res = await axiosInstance.post("/auth/resend-otp", { phone });
+      toast.success(res.data.message || "OTP resent successfully!");
+      return true;
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to resend OTP.");
       return false;
     } finally {
       set({ isSendingOtp: false });
