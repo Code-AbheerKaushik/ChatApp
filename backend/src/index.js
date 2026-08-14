@@ -13,8 +13,12 @@ import groupRoutes from "./routes/group.route.js";
 import notificationRoutes from "./routes/notification.route.js";
 import { startDisappearingWorker } from "./lib/disappearingWorker.js";
 import { app, server } from "./lib/socket.js";
+import { initializeFirebaseAdmin } from "./lib/firebaseAdmin.js";
 
 dotenv.config();
+
+// Initialize Firebase Admin SDK
+initializeFirebaseAdmin();
 
 app.set("trust proxy", 1);
 

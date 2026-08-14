@@ -2,8 +2,7 @@ import { generateToken } from "../lib/utils.js";
 import User from "../models/user.model.js";
 import Session from "../models/session.model.js";
 import Message from "../models/message.model.js";
-import twilio from "twilio";
-import jwt from "jsonwebtoken";
+import { admin } from "../lib/firebaseAdmin.js";
 import { io } from "../lib/socket.js";
 import bcrypt from "bcryptjs";
 import cloudinary from "../lib/cloudinary.js";
@@ -30,174 +29,6 @@ const buildUserResponse = (user) => ({
   createdAt: user.createdAt,
 });
 
-// Helper to get configured Twilio client
-const getTwilioClient = () => {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const serviceSid = process.env.TWILIO_VERIFY_SERVICE_SID;
-
-  if (!accountSid || !authToken || !serviceSid) {
-    throw new Error("Twilio Verify service is not properly configured. Please check server environment variables.");
-  }
-  return {
-    client: twilio(accountSid, authToken),
-    serviceSid,
-  };
-};
-
-// Map to track phone number cooldowns (phone -> lastSentTimestamp)
-const otpCooldowns = new Map();
-
-// Reusable helper to send verification SMS via Twilio Verify
-const sendVerificationSms = async (phone) => {
-  const cleanPhone = phone.trim();
-
-  // Verify phone number format matches E.164 (starts with +, followed by 7 to 15 digits)
-  const phoneRegex = /^\+[1-9]\d{1,14}$/;
-  if (!phoneRegex.test(cleanPhone)) {
-    const err = new Error("Invalid phone number format. Must be in international E.164 format (e.g., +1234567890).");
-    err.statusCode = 400;
-    throw err;
-  }
-
-  // Check if phone number is already registered by another verified account
-  const existingUser = await User.findOne({ phone: cleanPhone, isPhoneVerified: true });
-  if (existingUser) {
-    const err = new Error("This phone number is already registered to another account");
-    err.statusCode = 400;
-    throw err;
-  }
-
-  // Enforce 60-second cooldown per phone number
-  const lastSent = otpCooldowns.get(cleanPhone);
-  const now = Date.now();
-  if (lastSent && now - lastSent < 60000) {
-    const remaining = Math.ceil((60000 - (now - lastSent)) / 1000);
-    const err = new Error(`Please wait ${remaining} seconds before requesting another OTP.`);
-    err.statusCode = 429;
-    throw err;
-  }
-
-  const { client, serviceSid } = getTwilioClient();
-
-  try {
-    // Trigger SMS OTP send using Twilio Verify
-    await client.verify.v2.services(serviceSid)
-      .verifications
-      .create({ to: cleanPhone, channel: "sms" });
-  } catch (error) {
-    console.error("Twilio Verify API Error:", error);
-    // Gracefully handle Twilio rate limits (60203 max attempts reached or HTTP 429)
-    if (error.code === 60203 || error.status === 429) {
-      const err = new Error("Twilio Verify request limit exceeded. Please try again in a few minutes.");
-      err.statusCode = 429;
-      throw err;
-    }
-    const err = new Error(error.message || "Failed to deliver SMS verification.");
-    err.statusCode = error.status || 500;
-    throw err;
-  }
-
-  // Record cooldown timestamp
-  otpCooldowns.set(cleanPhone, now);
-  return cleanPhone;
-};
-
-// ──────────────────────────────────────────────────────────────────────────────
-// OTP Phone Verification
-// ──────────────────────────────────────────────────────────────────────────────
-
-export const sendOtp = async (req, res) => {
-  const { phone } = req.body;
-  try {
-    if (!phone || typeof phone !== "string" || phone.trim().length < 7) {
-      return res.status(400).json({ message: "Valid phone number with country code is required" });
-    }
-
-    const cleanPhone = await sendVerificationSms(phone);
-
-    res.status(200).json({
-      message: "OTP sent successfully via Twilio Verify",
-      phone: cleanPhone,
-    });
-  } catch (error) {
-    console.error("Error in sendOtp controller:", error);
-    res.status(error.statusCode || 500).json({ message: error.message || "Failed to send OTP. Please try again." });
-  }
-};
-
-export const resendOtp = async (req, res) => {
-  const { phone } = req.body;
-  try {
-    if (!phone || typeof phone !== "string" || phone.trim().length < 7) {
-      return res.status(400).json({ message: "Valid phone number with country code is required" });
-    }
-
-    const cleanPhone = await sendVerificationSms(phone);
-
-    res.status(200).json({
-      message: "OTP resent successfully via Twilio Verify",
-      phone: cleanPhone,
-    });
-  } catch (error) {
-    console.error("Error in resendOtp controller:", error);
-    res.status(error.statusCode || 500).json({ message: error.message || "Failed to resend OTP. Please try again." });
-  }
-};
-
-export const verifyOtp = async (req, res) => {
-  const { phone, otp } = req.body;
-  try {
-    if (!phone || !otp) {
-      return res.status(400).json({ message: "Phone number and OTP code are required" });
-    }
-
-    const cleanPhone = phone.trim();
-
-    const { client, serviceSid } = getTwilioClient();
-
-    let verificationCheck;
-    try {
-      // Check verification code with Twilio Verify
-      verificationCheck = await client.verify.v2.services(serviceSid)
-        .verificationChecks
-        .create({ to: cleanPhone, code: otp.trim() });
-    } catch (error) {
-      console.error("Twilio verification check error:", error);
-      // Handle known Twilio error states:
-      // 60202: Max verification check attempts reached
-      // 20404: Verification session expired or not found
-      if (error.code === 60202) {
-        return res.status(429).json({ message: "Too many incorrect verification attempts. Please request a new OTP." });
-      }
-      if (error.code === 20404) {
-        return res.status(400).json({ message: "Verification session expired or not found. Please click Resend OTP." });
-      }
-      return res.status(error.status || 500).json({ message: error.message || "Verification check failed." });
-    }
-
-    if (verificationCheck.status !== "approved") {
-      return res.status(400).json({ message: "Invalid OTP code. Please try again." });
-    }
-
-    // OTP Verified! Generate a secure short-lived temporary verification token
-    const verificationToken = jwt.sign(
-      { phone: cleanPhone, verified: true },
-      process.env.JWT_SECRET,
-      { expiresIn: "10m" }
-    );
-
-    res.status(200).json({
-      message: "Phone number verified successfully!",
-      phone: cleanPhone,
-      verificationToken,
-    });
-  } catch (error) {
-    console.error("Error in verifyOtp controller:", error);
-    res.status(500).json({ message: "Failed to verify OTP." });
-  }
-};
-
 // ──────────────────────────────────────────────────────────────────────────────
 // Signup
 // ──────────────────────────────────────────────────────────────────────────────
@@ -222,13 +53,23 @@ export const signup = async (req, res) => {
     }
 
     const cleanPhone = phone.trim();
+    let verifiedPhone = "";
+
     try {
-      const decoded = jwt.verify(verificationToken, process.env.JWT_SECRET);
-      if (decoded.phone !== cleanPhone || !decoded.verified) {
-        return res.status(400).json({ message: "Invalid or expired phone verification. Please verify your phone number again." });
+      // Verify Firebase ID Token provided by client
+      const decodedToken = await admin.auth().verifyIdToken(verificationToken);
+      verifiedPhone = decodedToken.phone_number;
+      if (!verifiedPhone) {
+        return res.status(400).json({ message: "Invalid ID token. No phone number verified." });
       }
     } catch (err) {
+      console.error("Firebase token verification failed:", err.message);
       return res.status(400).json({ message: "Invalid or expired phone verification. Please verify your phone number again." });
+    }
+
+    // Ensure verified phone matches the requested phone number
+    if (verifiedPhone !== cleanPhone) {
+      return res.status(400).json({ message: "Phone number mismatch. The verified phone number does not match." });
     }
 
     // Check if phone number is already registered by another verified account

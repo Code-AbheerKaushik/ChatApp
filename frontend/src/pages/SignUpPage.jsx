@@ -1,49 +1,56 @@
 import { useState, useRef, useEffect } from "react";
 import { useAuthStore } from "../store/useAuthStore";
-import { Eye, EyeOff, Loader2, Lock, Mail, MessageSquare, User, Phone, CheckCircle2, ShieldCheck, RefreshCw, Edit3 } from "lucide-react";
+import {
+  Eye, EyeOff, Loader2, Lock, Mail, MessageSquare,
+  User, Phone, CheckCircle2, ShieldCheck, RefreshCw, Edit3,
+} from "lucide-react";
 import { Link } from "react-router-dom";
-
 import AuthImagePattern from "../components/AuthImagePattern";
 import toast from "react-hot-toast";
 
 const COUNTRY_CODES = [
-  { code: "+1", label: "US/CA (+1)" },
-  { code: "+91", label: "India (+91)" },
-  { code: "+44", label: "UK (+44)" },
-  { code: "+61", label: "Australia (+61)" },
-  { code: "+49", label: "Germany (+49)" },
-  { code: "+33", label: "France (+33)" },
+  { code: "+1",   label: "US/CA (+1)" },
+  { code: "+91",  label: "India (+91)" },
+  { code: "+44",  label: "UK (+44)" },
+  { code: "+61",  label: "Australia (+61)" },
+  { code: "+49",  label: "Germany (+49)" },
+  { code: "+33",  label: "France (+33)" },
   { code: "+971", label: "UAE (+971)" },
-  { code: "+81", label: "Japan (+81)" },
-  { code: "+65", label: "Singapore (+65)" },
+  { code: "+81",  label: "Japan (+81)" },
+  { code: "+65",  label: "Singapore (+65)" },
 ];
+
+const RESEND_COOLDOWN = 60; // seconds
 
 const SignUpPage = () => {
   const [showPassword, setShowPassword] = useState(false);
-  const [formData, setFormData] = useState({
-    fullName: "",
-    email: "",
-    password: "",
-  });
+  const [formData, setFormData] = useState({ fullName: "", email: "", password: "" });
 
   // Phone & OTP state
-  const [countryCode, setCountryCode] = useState("+91");
-  const [phoneNumber, setPhoneNumber] = useState("");
-  const [otpStep, setOtpStep] = useState("IDLE"); // "IDLE" | "SENT" | "VERIFIED"
-  const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
-  const [verificationToken, setVerificationToken] = useState("");
-  const [resendTimer, setResendTimer] = useState(60);
+  const [countryCode, setCountryCode]   = useState("+91");
+  const [phoneNumber, setPhoneNumber]   = useState("");
+  const [otpStep, setOtpStep]           = useState("IDLE"); // "IDLE" | "SENT" | "VERIFIED"
+  const [otpDigits, setOtpDigits]       = useState(["", "", "", "", "", ""]);
+  const [resendTimer, setResendTimer]   = useState(RESEND_COOLDOWN);
+
+  // After Firebase verifyOtp succeeds we store the idToken + verified phone
+  const [firebaseIdToken, setFirebaseIdToken] = useState("");
+  const [verifiedPhone, setVerifiedPhone]     = useState("");
 
   const otpInputRefs = [
     useRef(null), useRef(null), useRef(null),
-    useRef(null), useRef(null), useRef(null)
+    useRef(null), useRef(null), useRef(null),
   ];
 
-  const { signup, isSigningUp, sendOtp, resendOtp, isSendingOtp, verifyOtp, isVerifyingOtp } = useAuthStore();
+  const {
+    signup, isSigningUp,
+    sendOtp, resendOtp, isSendingOtp,
+    verifyOtp, isVerifyingOtp,
+  } = useAuthStore();
 
   const fullPhone = `${countryCode}${phoneNumber.replace(/\D/g, "")}`;
 
-  // Countdown timer for OTP Resend
+  // ── Countdown timer ─────────────────────────────────────────────────────────
   useEffect(() => {
     let interval = null;
     if (otpStep === "SENT" && resendTimer > 0) {
@@ -52,28 +59,22 @@ const SignUpPage = () => {
     return () => clearInterval(interval);
   }, [otpStep, resendTimer]);
 
-  // Handle OTP digit change & auto-advance
+  // ── OTP digit handlers ──────────────────────────────────────────────────────
   const handleDigitChange = (index, value) => {
+    // Handle paste of full OTP
     if (value.length > 1) {
-      // Handle paste
       const pasted = value.replace(/\D/g, "").slice(0, 6).split("");
       const newDigits = [...otpDigits];
-      pasted.forEach((char, i) => {
-        if (i < 6) newDigits[i] = char;
-      });
+      pasted.forEach((char, i) => { if (i < 6) newDigits[i] = char; });
       setOtpDigits(newDigits);
       const nextIdx = Math.min(pasted.length, 5);
       otpInputRefs[nextIdx]?.current?.focus();
       return;
     }
-
     const newDigits = [...otpDigits];
     newDigits[index] = value.replace(/\D/g, "");
     setOtpDigits(newDigits);
-
-    if (value && index < 5) {
-      otpInputRefs[index + 1]?.current?.focus();
-    }
+    if (value && index < 5) otpInputRefs[index + 1]?.current?.focus();
   };
 
   const handleKeyDown = (index, e) => {
@@ -82,66 +83,68 @@ const SignUpPage = () => {
     }
   };
 
-  // Send OTP handler
+  // ── Send OTP ────────────────────────────────────────────────────────────────
   const handleSendOtp = async () => {
-    if (!phoneNumber || phoneNumber.replace(/\D/g, "").length < 7) {
+    const digits = phoneNumber.replace(/\D/g, "");
+    if (!digits || digits.length < 7) {
       return toast.error("Please enter a valid phone number");
     }
     const ok = await sendOtp(fullPhone);
     if (ok) {
       setOtpStep("SENT");
-      setResendTimer(60);
-      setTimeout(() => otpInputRefs[0]?.current?.focus(), 100);
-    }
-  };
-
-  // Resend OTP handler
-  const handleResendOtp = async () => {
-    if (!phoneNumber || phoneNumber.replace(/\D/g, "").length < 7) {
-      return toast.error("Please enter a valid phone number");
-    }
-    const ok = await resendOtp(fullPhone);
-    if (ok) {
-      setResendTimer(60);
+      setResendTimer(RESEND_COOLDOWN);
       setOtpDigits(["", "", "", "", "", ""]);
       setTimeout(() => otpInputRefs[0]?.current?.focus(), 100);
     }
   };
 
-  // Verify OTP handler
+  // ── Resend OTP ──────────────────────────────────────────────────────────────
+  const handleResendOtp = async () => {
+    const digits = phoneNumber.replace(/\D/g, "");
+    if (!digits || digits.length < 7) {
+      return toast.error("Please enter a valid phone number");
+    }
+    const ok = await resendOtp(fullPhone);
+    if (ok) {
+      setResendTimer(RESEND_COOLDOWN);
+      setOtpDigits(["", "", "", "", "", ""]);
+      setTimeout(() => otpInputRefs[0]?.current?.focus(), 100);
+    }
+  };
+
+  // ── Verify OTP ──────────────────────────────────────────────────────────────
   const handleVerifyOtp = async () => {
     const code = otpDigits.join("");
-    if (code.length < 6) {
-      return toast.error("Please enter the complete 6-digit OTP");
-    }
-    const data = await verifyOtp(fullPhone, code);
-    if (data?.verificationToken) {
-      setVerificationToken(data.verificationToken);
+    if (code.length < 6) return toast.error("Please enter the complete 6-digit OTP");
+
+    const result = await verifyOtp(code);
+    if (result?.idToken) {
+      setFirebaseIdToken(result.idToken);
+      setVerifiedPhone(result.phone);
       setOtpStep("VERIFIED");
     }
   };
 
+  // ── Form submit ─────────────────────────────────────────────────────────────
   const validateForm = () => {
     if (!formData.fullName.trim()) return toast.error("Full name is required");
-    if (!formData.email.trim()) return toast.error("Email is required");
+    if (!formData.email.trim())    return toast.error("Email is required");
     if (!/\S+@\S+\.\S+/.test(formData.email)) return toast.error("Invalid email format");
-    if (!formData.password) return toast.error("Password is required");
+    if (!formData.password)        return toast.error("Password is required");
     if (formData.password.length < 6) return toast.error("Password must be at least 6 characters");
-    if (otpStep !== "VERIFIED") return toast.error("Please verify your phone number with OTP first");
-
+    if (otpStep !== "VERIFIED")    return toast.error("Please verify your phone number first");
     return true;
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    const success = validateForm();
-    if (success === true) {
-      signup({
-        ...formData,
-        phone: fullPhone,
-        verificationToken,
-      });
-    }
+    if (validateForm() !== true) return;
+    signup({
+      ...formData,
+      phone: verifiedPhone,
+      // The Firebase ID token is verified server-side by the backend
+      verificationToken: firebaseIdToken,
+    });
   };
 
   return (
@@ -149,7 +152,8 @@ const SignUpPage = () => {
       {/* Left side form */}
       <div className="flex flex-col justify-center items-center p-4 xs:p-6 sm:p-12">
         <div className="w-full max-w-md space-y-7">
-          {/* LOGO */}
+
+          {/* Logo */}
           <div className="text-center mb-6">
             <div className="flex flex-col items-center gap-2 group">
               <div className="size-12 rounded-xl bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
@@ -160,7 +164,11 @@ const SignUpPage = () => {
             </div>
           </div>
 
+          {/* Invisible reCAPTCHA anchor — Firebase renders its widget here */}
+          <div id="recaptcha-container" />
+
           <form onSubmit={handleSubmit} className="space-y-4">
+
             {/* Full Name */}
             <div className="form-control">
               <label className="label py-1">
@@ -212,7 +220,7 @@ const SignUpPage = () => {
                 )}
               </label>
 
-              {/* IDLE state: Phone Input + Send OTP Button */}
+              {/* IDLE — Phone input + Send OTP button */}
               {otpStep === "IDLE" && (
                 <div className="flex flex-col sm:flex-row gap-2">
                   <div className="flex flex-1 gap-2">
@@ -235,6 +243,7 @@ const SignUpPage = () => {
                   </div>
                   <button
                     type="button"
+                    id="send-otp-btn"
                     onClick={handleSendOtp}
                     disabled={isSendingOtp || !phoneNumber}
                     className="btn btn-primary btn-sm h-10 rounded-xl text-xs font-semibold px-4 gap-1.5 w-full sm:w-auto"
@@ -244,7 +253,7 @@ const SignUpPage = () => {
                 </div>
               )}
 
-              {/* SENT state: 6-Digit OTP Inputs */}
+              {/* SENT — 6-Digit OTP inputs */}
               {otpStep === "SENT" && (
                 <div className="p-3.5 rounded-2xl bg-base-200/60 border border-primary/30 space-y-3 animate-fade-in">
                   <div className="flex items-center justify-between text-xs">
@@ -253,21 +262,22 @@ const SignUpPage = () => {
                     </span>
                     <button
                       type="button"
-                      onClick={() => setOtpStep("IDLE")}
+                      onClick={() => { setOtpStep("IDLE"); setOtpDigits(["", "", "", "", "", ""]); }}
                       className="text-primary font-semibold hover:underline flex items-center gap-1"
                     >
                       <Edit3 className="w-3 h-3" /> Edit
                     </button>
                   </div>
 
-                  {/* 6 Digit Input Boxes */}
+                  {/* 6 digit boxes */}
                   <div className="flex justify-between gap-1.5">
                     {otpDigits.map((digit, index) => (
                       <input
                         key={index}
                         ref={otpInputRefs[index]}
                         type="text"
-                        maxLength={1}
+                        inputMode="numeric"
+                        maxLength={6}
                         value={digit}
                         onChange={(e) => handleDigitChange(index, e.target.value)}
                         onKeyDown={(e) => handleKeyDown(index, e)}
@@ -276,9 +286,11 @@ const SignUpPage = () => {
                     ))}
                   </div>
 
+                  {/* Resend + Verify buttons */}
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
                     <button
                       type="button"
+                      id="resend-otp-btn"
                       onClick={handleResendOtp}
                       disabled={resendTimer > 0 || isSendingOtp}
                       className="text-xs text-primary font-semibold hover:underline disabled:text-base-content/40 disabled:no-underline flex items-center justify-center gap-1 w-full sm:w-auto order-2 sm:order-1 h-9"
@@ -289,6 +301,7 @@ const SignUpPage = () => {
 
                     <button
                       type="button"
+                      id="verify-otp-btn"
                       onClick={handleVerifyOtp}
                       disabled={isVerifyingOtp || otpDigits.join("").length < 6}
                       className="btn btn-sm btn-primary rounded-xl text-xs px-4 gap-1.5 w-full sm:w-auto order-1 sm:order-2 h-9"
@@ -299,15 +312,20 @@ const SignUpPage = () => {
                 </div>
               )}
 
-              {/* VERIFIED state Badge */}
+              {/* VERIFIED badge */}
               {otpStep === "VERIFIED" && (
                 <div className="flex items-center justify-between p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 text-xs font-semibold">
                   <span className="flex items-center gap-2">
-                    <ShieldCheck className="w-4 h-4" /> Phone verified ({fullPhone})
+                    <ShieldCheck className="w-4 h-4" /> Phone verified ({verifiedPhone})
                   </span>
                   <button
                     type="button"
-                    onClick={() => setOtpStep("IDLE")}
+                    onClick={() => {
+                      setOtpStep("IDLE");
+                      setFirebaseIdToken("");
+                      setVerifiedPhone("");
+                      setOtpDigits(["", "", "", "", "", ""]);
+                    }}
                     className="text-emerald-600 hover:underline text-[11px]"
                   >
                     Change
@@ -348,6 +366,7 @@ const SignUpPage = () => {
 
             <button
               type="submit"
+              id="create-account-btn"
               className="btn btn-primary w-full h-11 rounded-xl shadow-md font-semibold mt-2"
               disabled={isSigningUp || otpStep !== "VERIFIED"}
             >

@@ -19,9 +19,6 @@ import {
   getStorageStats,
   exportChatData,
   getSharedMedia,
-  sendOtp,
-  resendOtp,
-  verifyOtp,
   deleteAccount,
   getUserProfile,
 } from "../controllers/auth.controller.js";
@@ -29,22 +26,19 @@ import { saveOnboardingStep, checkUsernameAvailability } from "../controllers/on
 import { protectRoute } from "../middleware/auth.middleware.js";
 import rateLimit from "express-rate-limit";
 
-// Rate limiting middleware to prevent abuse of the send/resend OTP SMS endpoints
-const otpLimiter = rateLimit({
+// Rate limiting middleware to prevent brute-force/abuse of signup endpoint
+const signupLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit each IP to 5 requests per 15 minutes
-  message: { message: "Too many OTP requests from this IP. Please try again after 15 minutes." },
+  max: 10, // Limit each IP to 10 signup requests per 15 minutes
+  message: { message: "Too many signup attempts from this IP. Please try again after 15 minutes." },
   standardHeaders: true,
   legacyHeaders: false,
 });
 
 const router = express.Router();
 
-// ─── Auth & OTP
-router.post("/send-otp", otpLimiter, sendOtp);
-router.post("/resend-otp", otpLimiter, resendOtp);
-router.post("/verify-otp", verifyOtp);
-router.post("/signup", signup);
+// ─── Auth
+router.post("/signup", signupLimiter, signup);
 router.post("/login", login);
 router.post("/logout", logout);
 router.get("/check", protectRoute, checkAuth);

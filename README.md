@@ -54,7 +54,8 @@ cd ChatApp
 ---
 
 ### 2. Configure Environment Variables
-Create a `.env` file inside the `backend/` directory:
+
+**Backend** — create a `.env` file inside `backend/`:
 
 ```env
 MONGODB_URI=your_mongodb_connection_string
@@ -65,10 +66,22 @@ CLOUDINARY_API_KEY=your_cloudinary_api_key
 CLOUDINARY_API_SECRET=your_cloudinary_api_secret
 NODE_ENV=development
 
-# Twilio Verify SMS OTP Config
-TWILIO_ACCOUNT_SID=your_twilio_account_sid
-TWILIO_AUTH_TOKEN=your_twilio_auth_token
-TWILIO_VERIFY_SERVICE_SID=your_twilio_verify_service_sid
+# Firebase Admin SDK (from Firebase Console > Project Settings > Service Accounts)
+FIREBASE_PROJECT_ID=your_firebase_project_id
+FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxxxx@your_project.iam.gserviceaccount.com
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+```
+
+**Frontend** — create a `.env` file inside `frontend/`:
+
+```env
+# Firebase Client SDK (from Firebase Console > Project Settings > Your apps)
+VITE_FIREBASE_API_KEY=your_firebase_api_key
+VITE_FIREBASE_AUTH_DOMAIN=your_project_id.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your_firebase_project_id
+VITE_FIREBASE_STORAGE_BUCKET=your_project_id.firebasestorage.app
+VITE_FIREBASE_MESSAGING_SENDER_ID=your_messaging_sender_id
+VITE_FIREBASE_APP_ID=your_firebase_app_id
 ```
 
 ---
